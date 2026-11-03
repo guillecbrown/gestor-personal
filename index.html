@@ -403,6 +403,29 @@ main{flex:1 1 auto;overflow:auto;padding:0}
 .org-p .mo{font-size:11px;color:var(--ink3);white-space:nowrap}
 .org-p .pr{font-variant-numeric:tabular-nums;color:var(--ink2);white-space:nowrap}
 .org-vacio{padding:8px 12px;font-size:11px;color:var(--ink3)}
+/* Personal en dos columnas: legales a la izquierda, técnicos a la derecha. */
+.org-nodo.coord.dos{min-width:380px;max-width:460px}
+.org-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}
+.org-col{display:flex;flex-direction:column;gap:2px;min-width:0}
+.org-col + .org-col{box-shadow:inset 1px 0 0 var(--filo-suave);padding-left:8px}
+.org-col-tit{font-size:10.5px;font-weight:500;color:var(--ink3);padding:4px 6px 2px;
+  letter-spacing:.03em;text-transform:uppercase}
+.org-col-tit b{color:var(--ink2);font-variant-numeric:tabular-nums;font-weight:500}
+.org-col .org-vacio{padding:2px 6px}
+/* Las coordinaciones se arrastran hasta otra unidad o junto a otra coordinación. */
+.org-nodo.coord[draggable="true"]{cursor:grab}
+.org-nodo.arrastrando{opacity:.35}
+.org-nodo.drop{box-shadow:inset 0 0 0 2px var(--select)}
+.org-nodo.antes{box-shadow:-4px 0 0 var(--select), var(--anillo-suave)}
+.org-nodo.despues{box-shadow:4px 0 0 var(--select), var(--anillo-suave)}
+.btn-out.on{background:var(--hover);color:var(--ink);box-shadow:inset 0 0 0 1px var(--select)}
+/* Filtro de unidades del organigrama */
+#menuUnidades .menu-lista{left:0;right:auto;min-width:260px;padding:6px}
+#menuUnidades.fijo .menu-lista{animation:none}
+#menuUnidades .lista-chk{max-height:320px}
+#menuUnidades .lista-chk label{padding:6px 10px;font-size:12.5px}
+.org-filtro-acc{display:flex;gap:4px;margin-bottom:4px}
+.org-filtro-acc button{width:auto;flex:1;text-align:center;font-size:12px;padding:6px 8px}
 .org-mas{font-size:11px;color:var(--select);padding:2px 4px;cursor:pointer;font-weight:500}
 .org-mas:hover{text-decoration:underline}
 
@@ -765,6 +788,7 @@ var WEBP = {
     const { jsPDF } = await lib("jspdf");
     const SEP_X = 14, SEP_Y = 30, MARGEN = 26, PAD = 6;
     const ANCHO = { raiz: 190, area: 150, unidad: 150, coord: 168 };
+    const ANCHO_DOS = 300, SEP_COL = 8;   // coordinación con legales y técnicos en dos columnas
     const F_TIT = 9.5, F_CIF = 7.2, F_GEN = 6.6;
     const ALT_TIT = 12, ALT_CIF = 9, ALT_GEN = 8.4;
     const COLOR = {
@@ -788,17 +812,40 @@ var WEBP = {
       return corto.trimEnd() + "...";
     }
 
+    // Renglones del personal: cada uno, una lista de [dx, texto, negrita, activo].
+    // Con "columnas", legales (izq) y técnicos (der) lado a lado; sin "col" va
+    // arriba a todo lo ancho y "fin", abajo.
+    function renglones(n, util) {
+      const gente = n.gente || [];
+      const celda = (g, dx, w) => [dx, recortar(limpio(g.txt), F_GEN, w), !!g.jefe, g.activo !== false];
+      if (!n.columnas) return gente.map(g => [celda(g, 0, util)]);
+      const media = (util - SEP_COL) / 2;
+      const izq = gente.filter(g => g.col === "izq"), der = gente.filter(g => g.col === "der");
+      const filas = gente.filter(g => !g.col).map(g => [celda(g, 0, util)]);
+      filas.push([[0, limpio(n.columnas[0]), true, false], [media + SEP_COL, limpio(n.columnas[1]), true, false]]);
+      for (let i = 0; i < Math.max(izq.length, der.length); i++) {
+        const fila = [];
+        if (i < izq.length) fila.push(celda(izq[i], 0, media));
+        if (i < der.length) fila.push(celda(der[i], media + SEP_COL, media));
+        filas.push(fila);
+      }
+      const fin = gente.filter(g => g.col === "fin");
+      if (fin.length && n.columnas.length > 2) filas.push([[0, limpio(n.columnas[2]), true, false]]);
+      fin.forEach(g => filas.push([celda(g, 0, util)]));
+      return filas;
+    }
+
     // --- 1) medir cada nodo y su rama ---
     function medir(n) {
-      const w = ANCHO[n.tipo || "unidad"] || 150;
+      const w = n.columnas ? ANCHO_DOS : (ANCHO[n.tipo || "unidad"] || 150);
       const util = w - 2 * PAD;
       m.setFont("helvetica", "bold"); m.setFontSize(F_TIT);
       n._lin_tit = m.splitTextToSize(limpio(n.nombre), util);
       n._lin_cif = (n.cifras || []).map(([a, b]) => limpio(a) + ": " + limpio(b));
-      n._lin_gen = (n.gente || []).map(g => recortar(limpio(g.txt), F_GEN, util));
+      n._filas = renglones(n, util);
       n._w = w;
       n._h = PAD + n._lin_tit.length * ALT_TIT + 2 + n._lin_cif.length * ALT_CIF +
-             (n._lin_gen.length ? 4 + n._lin_gen.length * ALT_GEN : 0) + PAD;
+             (n._filas.length ? 4 + n._filas.length * ALT_GEN : 0) + PAD;
       const hijos = n.hijos || [];
       hijos.forEach(medir);
       if (hijos.length) {
@@ -872,13 +919,13 @@ var WEBP = {
       const gris = tipo === "raiz" ? "#FFFFFF" : GRIS;
       n._lin_cif.forEach(ln => { cy += ALT_CIF; texto(ln, x + PAD, cy, "normal", F_CIF, gris); });
 
-      if (n._lin_gen.length) {
+      if (n._filas.length) {
         cy += 4;
         linea(x + PAD, cy - 3, x + w - PAD, cy - 3, borde, 0.5);
-        (n.gente || []).forEach((g, i) => {
+        n._filas.forEach(fila => {
           cy += ALT_GEN;
-          texto(n._lin_gen[i], x + PAD, cy, g.jefe ? "bold" : "normal", F_GEN,
-                g.activo === false ? GRIS : "#1B2230");
+          fila.forEach(([dx, ln, negrita, activo]) =>
+            texto(ln, x + PAD + dx, cy, negrita ? "bold" : "normal", F_GEN, activo ? "#1B2230" : GRIS));
         });
       }
       (n.hijos || []).forEach(caja);
@@ -1027,7 +1074,8 @@ function estadoInicial() {
       { id: uid(), nombre: "Coordinación 3", subId: s3 }
     ],
     etiquetas: [],
-    personas: []
+    personas: [],
+    org: { unidades: [], dosColumnas: false }
   };
 }
 
@@ -1072,6 +1120,14 @@ function normalizar(d) {
     }
   });
   d.coordinaciones = Array.isArray(d.coordinaciones) ? d.coordinaciones : [];
+  // Cómo se ve el organigrama: qué unidades se muestran y si el personal va en dos columnas.
+  const org = d.org && typeof d.org === "object" ? d.org : {};
+  d.org = {
+    unidades: Array.isArray(org.unidades)
+      ? org.unidades.filter((x, i, l) => l.indexOf(x) === i && d.subdirecciones.some(s => s.id === x))
+      : [],
+    dosColumnas: !!org.dosColumnas
+  };
   d.etiquetas      = Array.isArray(d.etiquetas) ? d.etiquetas : [];
   d.personas       = Array.isArray(d.personas) ? d.personas : [];
   const idsEti = d.etiquetas.map(e => e.id);
@@ -2345,13 +2401,62 @@ function lineaOrg(p, coordId) {
   </div>`;
 }
 
+/** Personas de otros equipos que aportan productos a esta coordinación. */
+function aportantes(coordId) {
+  return vigentes().filter(p => p.activo && p.coordId !== coordId &&
+    (p.repartos || []).some(r => r.coordId === coordId && Number(r.productos) > 0));
+}
+
+/** Reparte la caja en dos columnas: legales a la izquierda y técnicos a la derecha.
+    Los jefes van arriba, a todo lo ancho; las demás categorías, abajo. */
+function columnasOrg(gente, aportan) {
+  const lado = p => p.categoria === "Legal" ? "izq" : p.categoria === "Técnico" ? "der" : "fin";
+  const resto = gente.filter(p => p.rol !== "Jefe de equipo").map(p => ({ p, aporta: false }))
+    .concat(aportan.map(p => ({ p, aporta: true })));
+  return {
+    jefes: gente.filter(p => p.rol === "Jefe de equipo"),
+    izq: resto.filter(x => lado(x.p) === "izq"),
+    der: resto.filter(x => lado(x.p) === "der"),
+    fin: resto.filter(x => lado(x.p) === "fin")
+  };
+}
+
+function lineaJefeExterno(p) {
+  return `<div class="org-p" data-id="${p.id}"
+      ondblclick="abrirPersona('${p.id}')"
+      title="${esc(nomPersona(p))} dirige este equipo y pertenece a ${esc(nomCoord(p.coordId))}">
+      <span class="pto" style="background:#b58900"></span>
+      <span class="nm">★ ${esc(nomPersona(p))}</span>
+      <span class="mo">de ${esc(nomCoord(p.coordId))}</span></div>`;
+}
+
+function lineaAporte(p, coordId) {
+  return `<div class="org-p" style="opacity:.75" data-id="${p.id}"
+      ondblclick="abrirPersona('${p.id}')"
+      title="Pertenece a ${esc(nomCoord(p.coordId))} y aporta productos aquí">
+      <span class="pto" style="background:var(--ink3)"></span>
+      <span class="nm" style="font-weight:500;font-style:italic">${esc(nomPersona(p))}</span>
+      <span class="pr">${fmtN(productosEn(p, coordId))}</span></div>`;
+}
+
+function genteEnColumnas(c, gente, aportan) {
+  const k = columnasOrg(gente, aportan);
+  const lineas = l => l.map(x => x.aporta ? lineaAporte(x.p, c.id) : lineaOrg(x.p, c.id)).join("");
+  const columna = (tit, l) => `<div class="org-col">
+      <div class="org-col-tit">${tit} <b>${fmtN(l.length)}</b></div>
+      ${l.length ? lineas(l) : `<div class="org-vacio">Ninguno</div>`}</div>`;
+  return `${k.jefes.map(p => lineaOrg(p, c.id)).join("")}
+    <div class="org-cols">${columna("Legales", k.izq)}${columna("Técnicos", k.der)}</div>
+    ${k.fin.length ? `<div class="org-col-tit">Otras categorías <b>${fmtN(k.fin.length)}</b></div>${lineas(k.fin)}` : ""}`;
+}
+
 function nodoCoordinacion(c, tot) {
   const t = tot.porCoord[c.id] || cero();
   const gente = personasDeCoord(c.id);
-  const aportan = vigentes().filter(p => p.activo && p.coordId !== c.id &&
-    (p.repartos || []).some(r => r.coordId === c.id && Number(r.productos) > 0));
+  const aportan = aportantes(c.id);
+  const dos = estado.org.dosColumnas;
   const vacio = `<div class="org-vacio">Sin personal</div>`;
-  return `<li><div class="org-nodo coord" data-unidad="${c.id}">
+  return `<li><div class="org-nodo coord${dos ? " dos" : ""}" data-unidad="${c.id}" draggable="true">
     <div class="org-cab">
       <div class="org-nom">${esc(c.nombre)}</div>
       <div class="org-acc">
@@ -2360,32 +2465,177 @@ function nodoCoordinacion(c, tot) {
     </div>
     ${cifrasOrg(t)}
     <div class="org-gente">
-      ${jefesExternos(c.id).map(p => `<div class="org-p" data-id="${p.id}"
-          ondblclick="abrirPersona('${p.id}')"
-          title="${esc(nomPersona(p))} dirige este equipo y pertenece a ${esc(nomCoord(p.coordId))}">
-          <span class="pto" style="background:#b58900"></span>
-          <span class="nm">★ ${esc(nomPersona(p))}</span>
-          <span class="mo">de ${esc(nomCoord(p.coordId))}</span></div>`).join("")}
-      ${gente.length ? gente.map(p => lineaOrg(p, c.id)).join("") : vacio}
-      ${aportan.map(p => `<div class="org-p" style="opacity:.75" data-id="${p.id}"
-          ondblclick="abrirPersona('${p.id}')"
-          title="Pertenece a ${esc(nomCoord(p.coordId))} y aporta productos aquí">
-          <span class="pto" style="background:var(--ink3)"></span>
-          <span class="nm" style="font-weight:500;font-style:italic">${esc(nomPersona(p))}</span>
-          <span class="pr">${fmtN(productosEn(p, c.id))}</span></div>`).join("")}
+      ${jefesExternos(c.id).map(lineaJefeExterno).join("")}
+      ${dos ? genteEnColumnas(c, gente, aportan)
+            : (gente.length ? gente.map(p => lineaOrg(p, c.id)).join("") : vacio) +
+              aportan.map(p => lineaAporte(p, c.id)).join("")}
     </div>
   </div></li>`;
 }
 
-function nodoSubdireccion(s, tot) {
-  const hijos = hijosDeSub(s.id);
-  const coords = estado.coordinaciones.filter(c => c.subId === s.id);
+/* ---------------------- filtro de unidades ---------------------------- */
+
+/** Qué deja ver el filtro: null si se ve todo. "ver" son las unidades que se
+    dibujan; "completas", aquellas cuyas coordinaciones también se dibujan
+    (las elegidas y lo que cuelga de ellas). Las que solo llevan hasta una
+    elegida se muestran como camino, sin el resto de su rama. */
+function visibilidadOrg() {
+  const sel = estado.org.unidades.filter(id => subPorId(id));
+  if (!sel.length) return null;
+  const ver = new Set(), completas = new Set();
+  sel.forEach(id => {
+    ramaDeSub(id).forEach(x => { ver.add(x); completas.add(x); });
+    let s = subPorId(id);
+    while (s && s.padreId) { ver.add(s.padreId); s = subPorId(s.padreId); }
+  });
+  return { ver, completas };
+}
+
+const subsOrg   = (padreId, vis) => hijosDeSub(padreId).filter(s => !vis || vis.ver.has(s.id));
+const coordsOrg = (subId, vis) => (vis && !vis.completas.has(subId)) ? []
+  : estado.coordinaciones.filter(c => c.subId === subId);
+
+let filtroOrgAbierto = false;
+
+function alternarFiltroOrg(ev) {
+  ev.stopPropagation();
+  filtroOrgAbierto = !filtroOrgAbierto;
+  $("#menuUnidades").classList.toggle("on", filtroOrgAbierto);
+  $("#menuUnidades").classList.remove("fijo");
+}
+
+document.addEventListener("click", e => {
+  // Al marcar una casilla se redibuja todo: ese clic no debe cerrar el filtro.
+  if (!filtroOrgAbierto || !e.target.isConnected || e.target.closest("#menuUnidades")) return;
+  filtroOrgAbierto = false;
+  const m = $("#menuUnidades");
+  if (m) m.classList.remove("on");
+});
+
+function marcarUnidadOrg(id, si) {
+  const l = estado.org.unidades.filter(x => x !== id);
+  if (si) l.push(id);
+  estado.org.unidades = l;
+  guardar(); render();
+}
+
+function todasUnidadesOrg() { estado.org.unidades = []; guardar(); render(); }
+
+function textoFiltroOrg() {
+  const sel = estado.org.unidades.filter(id => subPorId(id));
+  if (!sel.length) return "Unidades: todas";
+  if (sel.length === 1) return "Unidad: " + subPorId(sel[0]).nombre;
+  return "Unidades: " + sel.length + " de " + estado.subdirecciones.length;
+}
+
+function filtroUnidadesOrg() {
+  const nivel = s => { let n = 0, x = s; while (x && x.padreId) { n++; x = subPorId(x.padreId); } return n; };
+  const sel = new Set(estado.org.unidades);
+  // Si ya estaba abierto, al redibujar no vuelve a hacer la animación de entrada.
+  return `<div class="menu${filtroOrgAbierto ? " on fijo" : ""}" id="menuUnidades">
+    <button class="btn btn-out btn-sm${sel.size ? " on" : ""}" onclick="alternarFiltroOrg(event)"
+      title="Elegir qué unidades se muestran">${esc(textoFiltroOrg())} ▾</button>
+    <div class="menu-lista">
+      <div class="org-filtro-acc">
+        <button onclick="todasUnidadesOrg()">Mostrar todas</button>
+      </div>
+      <div class="lista-chk">${subsEnOrden().map(s => `
+        <label style="padding-left:${10 + nivel(s) * 16}px">
+          <input type="checkbox"${sel.has(s.id) ? " checked" : ""}
+            onchange="marcarUnidadOrg('${s.id}', this.checked)"> ${esc(s.nombre)}</label>`).join("")
+        || `<div class="vacio">No hay unidades</div>`}</div>
+      <p class="hint" style="margin:6px 4px 0">Sin ninguna marcada se ven todas. Una unidad
+        marcada se muestra con todo lo que cuelga de ella.</p>
+    </div>
+  </div>`;
+}
+
+/* ---------------------- mover coordinaciones -------------------------- */
+
+function activarArrastreOrg() {
+  const lienzo = $("#v-organigrama .org-lienzo");
+  if (!lienzo) return;
+  let idCoord = null;
+
+  const limpiar = () => lienzo.querySelectorAll(".org-nodo.drop, .org-nodo.antes, .org-nodo.despues")
+    .forEach(n => n.classList.remove("drop", "antes", "despues"));
+
+  lienzo.querySelectorAll(".org-nodo.coord[draggable]").forEach(el => {
+    el.addEventListener("dragstart", e => {
+      idCoord = el.dataset.unidad;
+      e.dataTransfer.setData("text/plain", idCoord);
+      e.dataTransfer.effectAllowed = "move";
+      setTimeout(() => el.classList.add("arrastrando"), 0);
+    });
+    el.addEventListener("dragend", () => { el.classList.remove("arrastrando"); limpiar(); idCoord = null; });
+  });
+
+  /** Dónde caería: dentro de una unidad, o antes o después de otra coordinación. */
+  const destinoEn = e => {
+    const nodo = e.target.closest && e.target.closest(".org-nodo[data-unidad]");
+    if (!nodo || nodo.dataset.unidad === idCoord) return null;
+    if (nodo.classList.contains("coord")) {
+      const r = nodo.getBoundingClientRect();
+      return { el: nodo, coord: nodo.dataset.unidad, antes: e.clientX < r.left + r.width / 2 };
+    }
+    return { el: nodo, sub: nodo.dataset.unidad };
+  };
+
+  lienzo.addEventListener("dragover", e => {
+    if (!idCoord) return;
+    limpiar();
+    const d = destinoEn(e);
+    if (!d) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    d.el.classList.add(d.coord ? (d.antes ? "antes" : "despues") : "drop");
+  });
+  lienzo.addEventListener("dragleave", e => { if (!lienzo.contains(e.relatedTarget)) limpiar(); });
+  lienzo.addEventListener("drop", e => {
+    const d = idCoord ? destinoEn(e) : null;
+    limpiar();
+    if (!d) return;
+    e.preventDefault();
+    const id = idCoord;
+    idCoord = null;
+    moverCoordinacion(id, d);
+  });
+}
+
+/** Pasa la coordinación a otra unidad o la coloca junto a otra coordinación.
+    El orden de estado.coordinaciones es el que siguen todas las vistas. */
+function moverCoordinacion(id, destino) {
+  const c = coordPorId(id);
+  if (!c) return;
+  const antes = c.subId;
+  const lista = estado.coordinaciones.filter(x => x !== c);
+  if (destino.coord) {
+    const ref = coordPorId(destino.coord);
+    if (!ref) return;
+    c.subId = ref.subId;
+    lista.splice(lista.indexOf(ref) + (destino.antes ? 0 : 1), 0, c);
+  } else {
+    if (c.subId === destino.sub) return;   // soltada en su propia unidad: nada cambia
+    c.subId = destino.sub;
+    lista.push(c);
+  }
+  estado.coordinaciones = lista;
+  guardar(); render();
+  const vis = visibilidadOrg();
+  toast(c.subId === antes ? `${c.nombre} cambió de lugar`
+    : `${c.nombre} pasa a ${nomSub(c.id)}` +
+      (vis && !vis.completas.has(c.subId) ? " (queda fuera del filtro)" : ""));
+}
+
+function nodoSubdireccion(s, tot, vis) {
+  const hijos = subsOrg(s.id, vis);
+  const coords = coordsOrg(s.id, vis);
   const t = totalRama(s.id, tot);
   const cerrado = colapsados.has(s.id);
   const nDesc = hijos.length + coords.length;
 
   const cuerpo = (cerrado || !nDesc) ? "" :
-    `<ul>${hijos.map(h => nodoSubdireccion(h, tot)).join("")}${
+    `<ul>${hijos.map(h => nodoSubdireccion(h, tot, vis)).join("")}${
         coords.map(c => nodoCoordinacion(c, tot)).join("")}</ul>`;
 
   return `<li>
@@ -2407,8 +2657,9 @@ function nodoSubdireccion(s, tot) {
 }
 
 function pintarOrganigrama(tot) {
-  const raices = raicesSub();
-  const sinSub = estado.coordinaciones.filter(c => !subPorId(c.subId));
+  const vis = visibilidadOrg();
+  const raices = subsOrg(null, vis);
+  const sinSub = vis ? [] : estado.coordinaciones.filter(c => !subPorId(c.subId));
   const sueltas = sinSub.length
     ? `<li><div class="org-nodo" style="background:var(--rojo-bg)">
          <div class="org-cab"><div class="org-nom" style="color:var(--rojo)">Sin subdirección</div></div>
@@ -2420,7 +2671,11 @@ function pintarOrganigrama(tot) {
   <div class="barra">
     <p class="hint" style="margin:0;flex:1;min-width:260px">Doble clic en una persona abre su ficha.
       El botón de la flecha de cada unidad define de quién depende y con <b>&minus;</b> pliegas su rama.
+      Arrastra una coordinación hasta otra unidad o junto a otra coordinación para moverla.
       Las cifras de cada unidad incluyen todo lo que cuelga de ella.</p>
+    ${filtroUnidadesOrg()}
+    <button class="btn btn-out btn-sm${estado.org.dosColumnas ? " on" : ""}" onclick="alternarDosColumnas()"
+      title="Legales a la izquierda y técnicos a la derecha en cada coordinación">Legales | Técnicos</button>
     <button class="btn btn-out btn-sm" onclick="dlgOrganizacion()">Renombrar ${esc(estado.organizacion)}</button>
     <button class="btn btn-out btn-sm" onclick="dlgSubdireccion()">+ Unidad</button>
     <button class="btn btn-out btn-sm" onclick="desplegarTodo()">Desplegar todo</button>
@@ -2439,9 +2694,15 @@ function pintarOrganigrama(tot) {
         ${cifrasOrg(tot.global)}
       </div>
       ${raices.length || sinSub.length
-        ? `<ul>${raices.map(s => nodoSubdireccion(s, tot)).join("")}${sueltas}</ul>` : ""}
+        ? `<ul>${raices.map(s => nodoSubdireccion(s, tot, vis)).join("")}${sueltas}</ul>` : ""}
     </li></ul>
   </div></div>`;
+  activarArrastreOrg();
+}
+
+function alternarDosColumnas() {
+  estado.org.dosColumnas = !estado.org.dosColumnas;
+  guardar(); render();
 }
 
 /* ---------------------- organigrama en PDF ---------------------------- */
@@ -2462,44 +2723,57 @@ function cifrasPdf(t) {
   return filas;
 }
 
+/** En dos columnas cada línea lleva "col": izq, der o fin (abajo); sin "col" va arriba. */
 function nodoPdfCoord(c, tot) {
-  const gente = personasDeCoord(c.id)
-    .map(p => ({
-      txt: (p.rol === "Jefe de equipo" ? "* " : "") + nomPersona(p) +
-           "  (" + (p.modalidad === "TF" && p.nivelTF ? "TF " + p.nivelTF : p.modalidad) +
-           (productosEn(p, c.id) ? ", " + fmtN(productosEn(p, c.id)) + " prod." : "") + ")",
-      jefe: p.rol === "Jefe de equipo",
-      activo: p.activo
-    }));
-  vigentes().filter(p => p.activo && p.coordId !== c.id &&
-      (p.repartos || []).some(r => r.coordId === c.id && Number(r.productos) > 0))
-    .forEach(p => gente.push({
-      txt: nomPersona(p) + "  (de " + nomCoord(p.coordId) + ", " +
-           fmtN(productosEn(p, c.id)) + " prod.)",
-      jefe: false, activo: false
-    }));
-  return { nombre: c.nombre, tipo: "coord",
-           cifras: cifrasPdf(tot.porCoord[c.id] || cero()), gente, hijos: [] };
+  const linea = p => ({
+    txt: (p.rol === "Jefe de equipo" ? "* " : "") + nomPersona(p) +
+         "  (" + (p.modalidad === "TF" && p.nivelTF ? "TF " + p.nivelTF : p.modalidad) +
+         (productosEn(p, c.id) ? ", " + fmtN(productosEn(p, c.id)) + " prod." : "") + ")",
+    jefe: p.rol === "Jefe de equipo",
+    activo: p.activo
+  });
+  const aporte = p => ({
+    txt: nomPersona(p) + "  (de " + nomCoord(p.coordId) + ", " +
+         fmtN(productosEn(p, c.id)) + " prod.)",
+    jefe: false, activo: false
+  });
+  const gente = personasDeCoord(c.id), aportan = aportantes(c.id);
+  const nodo = { nombre: c.nombre, tipo: "coord",
+                 cifras: cifrasPdf(tot.porCoord[c.id] || cero()), gente: [], hijos: [] };
+  if (!estado.org.dosColumnas) {
+    nodo.gente = gente.map(linea).concat(aportan.map(aporte));
+    return nodo;
+  }
+  const k = columnasOrg(gente, aportan);
+  const conCol = (l, col) => l.map(x => Object.assign(x.aporta ? aporte(x.p) : linea(x.p), { col }));
+  nodo.columnas = ["Legales (" + fmtN(k.izq.length) + ")", "Técnicos (" + fmtN(k.der.length) + ")",
+                   "Otras categorías (" + fmtN(k.fin.length) + ")"];
+  nodo.gente = k.jefes.map(linea)
+    .concat(conCol(k.izq, "izq"), conCol(k.der, "der"), conCol(k.fin, "fin"));
+  return nodo;
 }
 
-function nodoPdfSub(s, tot) {
-  const hijos = hijosDeSub(s.id).map(h => nodoPdfSub(h, tot))
-    .concat(estado.coordinaciones.filter(c => c.subId === s.id).map(c => nodoPdfCoord(c, tot)));
+function nodoPdfSub(s, tot, vis) {
+  const hijos = subsOrg(s.id, vis).map(h => nodoPdfSub(h, tot, vis))
+    .concat(coordsOrg(s.id, vis).map(c => nodoPdfCoord(c, tot)));
   return { nombre: s.nombre, tipo: hijosDeSub(s.id).length ? "area" : "unidad",
            cifras: cifrasPdf(totalRama(s.id, tot)), gente: [], hijos };
 }
 
 async function organigramaPdf() {
   const tot = calcular();
-  const hijos = raicesSub().map(s => nodoPdfSub(s, tot));
-  estado.coordinaciones.filter(c => !subPorId(c.subId))
+  const vis = visibilidadOrg();
+  const hijos = subsOrg(null, vis).map(s => nodoPdfSub(s, tot, vis));
+  if (!vis) estado.coordinaciones.filter(c => !subPorId(c.subId))
     .forEach(c => hijos.push(nodoPdfCoord(c, tot)));
+  const elegidas = estado.org.unidades.map(subPorId).filter(Boolean).map(s => s.nombre);
 
   const datos = {
     titulo: "Organigrama · " + estado.organizacion,
     fecha: "Personal activo al " + fechaCorta(hoyISO()) +
            " · " + fmtN(tot.global.personas) + " personas · " +
-           fmtN(tot.global.productos) + " productos · " + fmtS(tot.global.ppto) + " al mes",
+           fmtN(tot.global.productos) + " productos · " + fmtS(tot.global.ppto) + " al mes" +
+           (vis ? " · Unidades mostradas: " + elegidas.join(", ") : ""),
     raiz: { nombre: estado.organizacion, tipo: "raiz",
             cifras: cifrasPdf(tot.global), gente: [], hijos }
   };
@@ -4040,7 +4314,7 @@ function aplicarImportacion(modo) {
 
   estado = normalizar({
     version: 1, organizacion: estado.organizacion, sectores: sects, subdirecciones: subs,
-    coordinaciones: coords, etiquetas: etis, personas: base
+    coordinaciones: coords, etiquetas: etis, personas: base, org: estado.org
   });
   importPendiente = null;
   guardar(true); cerrar(); render();
