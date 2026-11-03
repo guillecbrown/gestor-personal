@@ -593,9 +593,6 @@ tr.resaltado-actual td{background-color:rgba(255,214,10,.24) !important}
         <button class="btn btn-g btn-ico" title="Excel y respaldos" data-ico="mas"
           onclick="alternarMenu(event)"></button>
         <div class="menu-lista">
-          <button onclick="cerrarMenu();exportarExcel()">Exportar Excel</button>
-          <button onclick="cerrarMenu();importarExcel()">Importar Excel</button>
-          <div class="menu-sep"></div>
           <button onclick="cerrarMenu();respaldar()">Exportar base</button>
           <button onclick="cerrarMenu();restaurar()">Importar base</button>
           <div class="menu-sep"></div>
@@ -723,6 +720,14 @@ var WEBP = {
       const columnas = hoja.columnas || [];
       const filas = hoja.filas || [];
       const ws = X.utils.aoa_to_sheet([columnas].concat(filas));
+      if (hoja.oculta) {
+        // La base entera, para volver a importarla tal cual: sin formato.
+        X.utils.book_append_sheet(wb, ws, String(hoja.nombre).slice(0, 31));
+        wb.Workbook = wb.Workbook || {};
+        wb.Workbook.Sheets = wb.SheetNames.map((_, i) => (wb.Workbook.Sheets || [])[i] || {});
+        wb.Workbook.Sheets[wb.SheetNames.length - 1].Hidden = 1;
+        return;
+      }
       columnas.forEach((_, c) => {
         const cel = ws[X.utils.encode_cell({ r: 0, c })];
         if (cel) cel.s = {
@@ -765,7 +770,7 @@ var WEBP = {
     const hojas = {};
     wb.SheetNames.forEach(nombre => {
       const t = nombre.trim().toLowerCase();
-      if (!(t.startsWith("personal") || t === "historial")) return;
+      if (!(t.startsWith("personal") || t === "historial" || t === "_base")) return;
       const crudas = X.utils.sheet_to_json(wb.Sheets[nombre], { header: 1, raw: true, defval: "" });
       const filas = [];
       crudas.forEach(fila => {
@@ -1007,6 +1012,16 @@ var WEBP = {
   const enDescargas = n => n + " (carpeta Descargas)";
   const falla = e => ({ ok: false, error: String(e && e.message ? e.message : e) });
 
+  async function leerBase(f) {
+    if (!f) return { ok: false, cancelado: true };
+    try {
+      const datos = JSON.parse(await f.text());
+      if (!datos || typeof datos !== "object" || !Array.isArray(datos.personas))
+        return { ok: false, error: "el archivo no parece una base del Gestor de Personal" };
+      return { ok: true, datos, ruta: f.name };
+    } catch (e) { return falla("no es un JSON válido"); }
+  }
+
   window.pywebview = {
     api: {
       async cargar() {
@@ -1035,14 +1050,16 @@ var WEBP = {
       },
 
       async importar_respaldo() {
-        const f = await WEBP.elegirArchivo(".json,application/json");
-        if (!f) return { ok: false, cancelado: true };
-        try {
-          const datos = JSON.parse(await f.text());
-          if (!datos || typeof datos !== "object" || !Array.isArray(datos.personas))
-            return { ok: false, error: "el archivo no parece una base del Gestor de Personal" };
-          return { ok: true, datos, ruta: f.name };
-        } catch (e) { return falla("no es un JSON válido"); }
+        return leerBase(await WEBP.elegirArchivo(".json,application/json"));
+      },
+
+      /* "Importar base" de la web: el Excel que exporta esta página o un .json
+         (el datos_personal.json del .exe o una base de antes). */
+      async importar_base() {
+        const f = await WEBP.elegirArchivo(".xlsx,.xlsm,.json,application/json");
+        if (!f || /\.json$/i.test(f.name)) return leerBase(f);
+        try { return { ok: true, ruta: f.name, hojas: await leerExcel(f) }; }
+        catch (e) { return falla(e); }
       },
 
       async exportar_excel(payload, sugerido) {
@@ -4015,9 +4032,62 @@ function hojasExcel() {
   return hojas;
 }
 
+/* El Excel lleva además una hoja oculta con la base entera, para que al
+   importarlo vuelva todo tal cual (orden, organigrama, colores, ids) y no
+   solo lo que cabe en las columnas. La huella resume las hojas que lee el
+   importador: si alguien las edita a mano, deja de coincidir. */
+const HOJA_BASE = "_base";
+
+function huellaHojas(hojas) {
+  const partes = [];
+  Object.keys(hojas).filter(n => canon(n).startsWith("personal") || canon(n) === "historial").sort()
+    .forEach(n => {
+      partes.push("#" + n);
+      hojas[n].forEach(f => {
+        const celdas = (f || []).map(v => v == null ? "" : typeof v === "boolean" ? (v ? "SI" : "NO") : String(v).trim());
+        while (celdas.length && celdas[celdas.length - 1] === "") celdas.pop();
+        if (celdas.length) partes.push(celdas.join("\u0001"));
+      });
+    });
+  const s = partes.join("\u0002");
+  let h1 = 0x811c9dc5, h2 = 5381;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 16777619) >>> 0;
+    h2 = (Math.imul(h2, 33) + c) >>> 0;
+  }
+  return s.length.toString(36) + "-" + h1.toString(36) + "-" + h2.toString(36);
+}
+
+function hojaBase(hojas) {
+  const porNombre = {};
+  hojas.forEach(h => { porNombre[String(h.nombre).slice(0, 31)] = [h.columnas].concat(h.filas); });
+  // Solo ASCII: así se puede trocear en cualquier punto (una celda admite 32 767 caracteres).
+  const json = JSON.stringify(estado).replace(/[\u007f-￿]/g,
+    c => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+  const filas = [["formato", "gestor-personal 1"], ["exportado", hoyISO()],
+                 ["fichas", estado.personas.length], ["huella", huellaHojas(porNombre)]];
+  for (let i = 0; i < json.length; i += 30000) filas.push(["base", json.slice(i, i + 30000)]);
+  return { nombre: HOJA_BASE, oculta: true, columnas: ["campo", "valor"], filas };
+}
+
+/** Lee la hoja oculta de un Excel ya importado; null si no la trae o está dañada. */
+function baseDeHojas(hojas, ruta) {
+  const filas = hojas[HOJA_BASE];
+  if (!filas) return null;
+  const dato = k => (filas.find(f => f[0] === k) || [])[1];
+  try {
+    const datos = JSON.parse(filas.filter(f => f[0] === "base").map(f => String(f[1])).join(""));
+    if (!datos || !Array.isArray(datos.personas)) return null;
+    return { datos, ruta, exportado: String(dato("exportado") || ""),
+             intacta: dato("huella") === huellaHojas(hojas) };
+  } catch (e) { return null; }
+}
+
 async function exportarExcel() {
   const hojas = hojasExcel();
   if (!hayApi) { exportarCsv(hojas); return; }
+  hojas.push(hojaBase(hojas));
   const hoy = new Date().toISOString().slice(0, 10);
   const r = await window.pywebview.api.exportar_excel({ hojas }, "cuadro_personal_" + hoy + ".xlsx");
   if (r.ok) toast("Excel guardado en " + r.ruta);
@@ -4265,7 +4335,58 @@ async function importarExcel() {
   if (!hayApi) { toast("Disponible en la aplicación de escritorio", true); return; }
   const r = await window.pywebview.api.importar_excel();
   if (!r.ok) { if (!r.cancelado) toast("No se pudo leer: " + r.error, true); return; }
-  const hojas = r.hojas || {};
+  abrirExcel(r.ruta, r.hojas || {});
+}
+
+let basePendiente = null;
+
+/** Sigue con un Excel ya leído: si trae la base entera ofrece restaurarla. */
+function abrirExcel(ruta, hojas) {
+  const b = baseDeHojas(hojas, ruta);
+  delete hojas[HOJA_BASE];
+  if (!b) { leerFichasExcel(ruta, hojas); return; }
+  basePendiente = { b, hojas };
+  const archivo = esc(String(ruta).split(/[\\/]/).pop());
+  const elDia = b.exportado ? " el " + esc(fechaCorta(b.exportado)) : "";
+  abrirModal("Importar desde Excel", b.intacta
+    ? `<div class="hint" style="font-size:13.5px;line-height:1.6"><b>${archivo}</b> trae la base completa${b.exportado ? ", exportada" + elDia : ""}
+         (${b.datos.personas.length} ficha(s)), con el orden, el organigrama y todo lo demás.</div>
+       <div class="hint" style="margin-top:10px">Restaurarla <b>reemplaza</b> los datos que tienes en pantalla.
+         Si solo quieres sumar sus fichas a lo actual, elige <b>Leer solo las fichas</b>.</div>`
+    : `<div class="aviso">Las hojas de personal de <b>${archivo}</b> se editaron después de exportarlo:
+         la base completa que trae guardada no tiene esos cambios.</div>
+       <div class="hint" style="margin-top:10px;line-height:1.6"><b>Restaurar la base guardada</b> deja todo como
+         estaba al exportarlo${elDia} y descarta lo editado. <b>Leer las fichas editadas</b> toma lo que dicen
+         las hojas, con las opciones de siempre (agregar, completar o reemplazar).</div>`,
+    b.intacta
+    ? `<button class="btn btn-out" onclick="cerrar()">Cancelar</button>
+       <button class="btn btn-out" onclick="cerrar();leerFichasPendientes()">Leer solo las fichas</button>
+       <button class="btn btn-accion" onclick="cerrar();restaurarPendiente()">Restaurar la base</button>`
+    : `<button class="btn btn-out" onclick="cerrar()">Cancelar</button>
+       <button class="btn btn-out" onclick="cerrar();restaurarPendiente()">Restaurar la base guardada</button>
+       <button class="btn btn-accion" onclick="cerrar();leerFichasPendientes()">Leer las fichas editadas</button>`, true);
+}
+
+function restaurarPendiente() {
+  if (basePendiente) restaurarBase(basePendiente.b.datos, basePendiente.b.ruta);
+}
+
+function leerFichasPendientes() {
+  if (basePendiente) leerFichasExcel(basePendiente.b.ruta, basePendiente.hojas);
+}
+
+/* Pone en pantalla la base que trae un archivo. La versión web la reemplaza. */
+function restaurarBase(datos, ruta) {
+  confirmar("Restaurar la base",
+    "Los datos actuales serán <b>reemplazados</b> por la base de <b>" +
+    esc(String(ruta).split(/[\\/]/).pop()) + "</b>.", () => {
+      estado = normalizar(datos);
+      guardar(true); aplicarTema(); pintarTabs(); render();
+      toast("Base restaurada: " + estado.personas.length + " ficha(s)");
+    });
+}
+
+function leerFichasExcel(ruta, hojas) {
   if (!Object.keys(hojas).length) {
     toast('El archivo no tiene ninguna hoja llamada "Personal"', true); return;
   }
@@ -4279,7 +4400,7 @@ async function importarExcel() {
     return;
   }
   importPendiente = lect;
-  dlgImportar(r.ruta);
+  dlgImportar(ruta);
 }
 
 function dlgImportar(ruta) {
@@ -4551,25 +4672,36 @@ async function restaurar() {
     guardar(true);
   }
 
-  respaldar = function () {
-    const nombre = "base_personal_" + hoyISO() + ".json";
-    WEBP.descargar(JSON.stringify(estado, null, 1), nombre, "application/json");
+  /* La base sale como Excel: las mismas hojas de "Exportar Excel", que se
+     pueden leer y filtrar, más la hoja oculta con la base entera. */
+  respaldar = async function () {
+    const nombre = "base_personal_" + hoyISO() + ".xlsx";
+    const hojas = hojasExcel();
+    hojas.push(hojaBase(hojas));
+    const r = await window.pywebview.api.exportar_excel({ hojas }, nombre);
+    if (!r.ok) { toast("No se pudo exportar: " + r.error, true); return; }
     fijarLimpia(nombre);
     toast("Base exportada: " + nombre + " (carpeta Descargas)");
   };
+  exportarExcel = respaldar;   // es el mismo archivo
 
   restaurar = async function () {
-    const r = await window.pywebview.api.importar_respaldo();
+    const r = await window.pywebview.api.importar_base();
     if (!r.ok) { if (!r.cancelado) toast("No se pudo leer: " + r.error, true); return; }
+    if (r.datos) restaurarBase(r.datos, r.ruta);
+    else abrirExcel(r.ruta, r.hojas || {});
+  };
+
+  restaurarBase = function (datos, ruta) {
     const cargar = () => {
-      estado = normalizar(r.datos);
-      fijarLimpia(r.ruta);
+      estado = normalizar(datos);
+      fijarLimpia(String(ruta).split(/[\\/]/).pop());
       aplicarTema(); pintarTabs(); render();
-      toast("Base importada: " + r.datos.personas.length + " ficha(s)");
+      toast("Base importada: " + estado.personas.length + " ficha(s)");
     };
     if (!estado.personas.length && !WEBP.sucio) { cargar(); return; }
     confirmar("Importar base",
-      "Los datos que tienes en pantalla serán <b>reemplazados</b> por los de <b>" + esc(r.ruta) + "</b>" +
+      "Los datos que tienes en pantalla serán <b>reemplazados</b> por los de <b>" + esc(ruta) + "</b>" +
       (WEBP.sucio ? ".<br><br>Ojo: tienes cambios que <b>no exportaste</b> y se perderán." : "."), cargar);
   };
 
@@ -4587,8 +4719,8 @@ async function restaurar() {
   function bienvenida() {
     abrirModal("Gestor de Personal",
       `<div class="hint" style="font-size:13.5px;line-height:1.6">Para empezar, importa la base:
-         el archivo <b>.json</b> que exporta esta página, el <b>datos_personal.json</b> del
-         ejecutable o un respaldo suyo.</div>
+         el <b>Excel</b> que exporta esta página o el del ejecutable (Exportar Excel). También
+         sirve un <b>.json</b>: el <b>datos_personal.json</b> del ejecutable o una base de antes.</div>
        <div class="hint" style="margin-top:12px;line-height:1.6">El archivo se lee aquí mismo,
          en tu navegador: no se sube a ningún servidor. Cuando termines, pulsa
          <b>Exportar base</b> para descargar una copia con tus cambios.</div>`,
