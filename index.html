@@ -468,6 +468,9 @@ th{background:transparent;font-weight:500;color:var(--ink3);font-size:12px;
   box-shadow:inset 0 -1px 0 var(--filo-suave)}
 td{color:var(--ink2)}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+/* Historial de contratos: cabe en el ancho de la ficha sin desplazarse de lado. */
+.t-hist th,.t-hist td{padding:8px;white-space:normal;vertical-align:top}
+.t-hist td:nth-child(-n+3),.t-hist td.num,.t-hist th.num{white-space:nowrap}
 tbody tr td{transition:background-color .15s ease;box-shadow:inset 0 -1px 0 var(--filo-suave)}
 tbody tr:hover td{background:var(--hover)}
 tbody tr td:first-child{color:var(--ink)}
@@ -524,6 +527,24 @@ input:focus,select:focus,textarea:focus{outline:0;background:var(--hover);
   padding:12px;border-radius:var(--radio-s);font-size:12px;margin-bottom:16px;
   line-height:1.5;box-shadow:inset 0 0 0 1px rgba(255,214,10,.2)}
 .aviso b{color:var(--amarillo)}
+
+/* ------------------------------------------------------ integrar propuestas */
+.int-arch{padding:10px 12px;border-radius:var(--radio-s);box-shadow:var(--anillo-suave);margin-bottom:8px}
+.int-arch-cab{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2)}
+.int-arch-cab b{color:var(--ink);font-weight:500}
+.int-aviso{font-size:12px;line-height:1.5;color:var(--ambar);margin-top:6px}
+.int-letras{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--ink2);margin-bottom:12px}
+.int-sec{font-size:12.5px;font-weight:500;color:var(--ink);margin-bottom:8px}
+.int-conf{padding:10px 12px;border-radius:var(--radio-s);box-shadow:var(--anillo-suave);margin-bottom:8px}
+.int-conf.pend{box-shadow:inset 0 0 0 1px var(--ambar)}
+.int-conf-tit{font-size:12.5px;font-weight:500;color:var(--ink);margin-bottom:4px}
+.int-nombres{font-size:11.5px;line-height:1.5;color:var(--ink3);margin-bottom:4px}
+.int-op{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12.5px;color:var(--ink2);cursor:pointer}
+.int-op input{flex:none;margin:0}
+.int-det{border-radius:var(--radio-s);box-shadow:var(--anillo-suave);margin-bottom:6px;font-size:12.5px}
+.int-det summary{padding:8px 12px;cursor:pointer;color:var(--ink2)}
+.int-det summary b{color:var(--ink);font-weight:500}
+.int-lista{padding:0 12px 10px;max-height:240px;overflow:auto;font-size:12px;line-height:1.7;color:var(--ink2)}
 
 /* --------------------------------------------------------------- buscador */
 #buscador{position:fixed;top:10px;right:16px;z-index:60;display:none;align-items:center;
@@ -597,6 +618,8 @@ tr.resaltado-actual td{background-color:rgba(255,214,10,.24) !important}
           <button onclick="cerrarMenu();restaurar()">Importar base</button>
           <div class="menu-sep"></div>
           <button onclick="cerrarMenu();WEBP.olvidar()">Olvidar la base en este navegador</button>
+          <div class="menu-sep"></div>
+          <button onclick="cerrarMenu();integrarPropuestas()">Integrar propuestas</button>
         </div>
       </div>
     </div>
@@ -1252,8 +1275,12 @@ function normalizar(d) {
     p.historial = Array.isArray(p.historial)
       ? p.historial.filter(h => h && typeof h === "object").map(h => ({
           inicio: String(h.inicio || ""), fin: String(h.fin || ""),
-          motivo: String(h.motivo || ""), modalidad: String(h.modalidad || ""),
-          nivelTF: String(h.nivelTF || ""), coordinacion: String(h.coordinacion || ""),
+          finPrevisto: String(h.finPrevisto || ""),
+          motivo: String(h.motivo || ""), nroContrato: String(h.nroContrato || ""),
+          modalidad: String(h.modalidad || ""), nivelTF: String(h.nivelTF || ""),
+          rol: String(h.rol || ""), salario: Math.max(0, Number(h.salario) || 0),
+          productos: Math.max(0, Number(h.productos) || 0),
+          coordinacion: String(h.coordinacion || ""), subdireccion: String(h.subdireccion || ""),
           observacion: String(h.observacion || "")
         }))
       : [];
@@ -2178,22 +2205,30 @@ function finContrato(id) {
   toast(nomPersona(p) + ": contrato cerrado por " + motivo.toLowerCase());
 }
 
-/** Guarda el periodo que se cierra en el historial y deja limpio el actual. */
+/** Guarda el contrato que se cierra en el historial y deja libre el actual.
+    Fechas, motivo y N° son de ese contrato y no pasan al siguiente. */
 function archivarPeriodo(p) {
-  if (!p.fechaInicio && !p.fechaCese && !p.fechaFin && !p.motivoCese) return;
+  if (!p.fechaInicio && !p.fechaCese && !p.fechaFin && !p.motivoCese && !p.nroContrato) return;
   p.historial = (p.historial || []).concat({
     inicio: p.fechaInicio || "",
     fin: p.fechaCese || p.fechaFin || p.fechaAntiguo || "",
+    finPrevisto: p.fechaFin || "",
     motivo: p.motivoCese || "",
+    nroContrato: p.nroContrato || "",
     modalidad: p.modalidad || "",
     nivelTF: p.modalidad === "TF" ? (p.nivelTF || "") : "",
+    rol: p.rol || "",
+    salario: Number(p.salario) || 0,
+    productos: Number(p.productos) || 0,
     coordinacion: nomCoord(p.coordId),
+    subdireccion: nomSub(p.coordId),
     observacion: ""
   });
   p.fechaInicio = "";
   p.fechaFin = "";
   p.fechaCese = "";
   p.motivoCese = "";
+  p.nroContrato = "";
 }
 
 /** Devuelve a la persona a la composición actual. */
@@ -2245,7 +2280,8 @@ function pintarAntiguos() {
   $("#v-antiguos").innerHTML = `
   <p class="hint">Personal que ya salió del área. No entra en el Kanban, en la pestaña Personal
     ni en ningún cálculo de productos o presupuesto: queda archivado aquí. <b>Reincorporar</b>
-    lo devuelve a la composición actual con toda su ficha intacta.</p>
+    lo devuelve a la composición actual con su ficha: el contrato anterior pasa a su historial
+    y se registra uno nuevo.</p>
   <div class="barra">
     <div class="campo" style="min-width:260px"><label>Buscar</label>
       <input type="text" id="a-buscar" value="${esc(filtroAntiguos)}"
@@ -3188,11 +3224,18 @@ function confirmar(titulo, texto, fn) {
 
 /* --------------------------------- persona ---------------------------- */
 
+/* Contrato de la ficha de personal antiguo que está abierta: al quitarle la marca
+   se recontrata, y si se vuelve a marcar hay que devolver lo que había. */
+let contratoCerrado = null;
+
 function abrirPersona(id, coordSugerida) {
   const p = id ? estado.personas.find(x => x.id === id) : null;
+  contratoCerrado = p && p.antiguo
+    ? { inicio: p.fechaInicio || "", fin: p.fechaFin || "", nro: p.nroContrato || "", activo: !!p.activo }
+    : null;
   const v = p || {
     nombre: "", apellido: "", modalidad: "CAS", nivelTF: "I", salario: 0, productos: 0,
-    carrera: "", categoria: "Técnico", sector: estado.sectores[0] || "",
+    carrera: "", categoria: "Técnico", sector: "",
     coordId: coordSugerida || (estado.coordinaciones[0] || {}).id || "",
     fechaInicio: "", fechaFin: "", rol: "Analista", activo: true, antiguo: false,
     etiquetas: [], repartos: [], jefaturas: [], motivoCese: "", fechaCese: "",
@@ -3271,6 +3314,9 @@ function abrirPersona(id, coordSugerida) {
       <div class="campo"><label>Fecha de fin de contrato</label>
         <input type="date" id="p-cese" value="${esc(v.fechaCese || "")}"></div>
     </div>
+    <div class="aviso" id="aviso-recontrato" style="display:none;margin-top:12px"><b>Nuevo contrato.</b>
+      Al guardar, el contrato anterior pasa al historial con sus fechas y su número. Completa el
+      inicio, el fin y el N° del contrato nuevo.</div>
 
     <div class="grid3" style="margin-top:12px">
       <div class="campo"><label>DNI</label>
@@ -3403,6 +3449,16 @@ function pintarResto() {
 function camposCese() {
   const b = $("#bloque-cese");
   if (b) b.style.display = $("#p-antiguo").checked ? "" : "none";
+  if (!contratoCerrado) return;
+  // Quitarle la marca a una ficha antigua es recontratar: el formulario queda
+  // listo para el contrato nuevo, que además vuelve a contar en los cálculos.
+  const vuelve = !$("#p-antiguo").checked;
+  $("#p-ini").value = vuelve ? "" : contratoCerrado.inicio;
+  $("#p-fin").value = vuelve ? "" : contratoCerrado.fin;
+  $("#p-contrato").value = vuelve ? "" : contratoCerrado.nro;
+  $("#p-activo").checked = vuelve || contratoCerrado.activo;
+  $("#aviso-recontrato").style.display = vuelve ? "" : "none";
+  camposInactivo();
 }
 
 /** El motivo de la desactivación solo se pide si la persona no cuenta. */
@@ -3426,31 +3482,48 @@ function camposJefaturas() {
 /** Periodos anteriores de contrato de la persona, de solo lectura. */
 function bloqueHistorial(v) {
   const h = v.historial || [];
-  const actual = v.fechaInicio || v.fechaFin || v.motivoCese
+  const actual = v.fechaInicio || v.fechaFin || v.motivoCese || v.nroContrato
     ? `<tr>
+        <td>${esc(v.nroContrato || "-")}</td>
         <td>${fechaCorta(v.fechaInicio) || "-"}</td>
-        <td>${fechaCorta(v.fechaCese || (v.antiguo ? v.fechaFin : "")) || (v.antiguo ? "-" : "vigente")}</td>
+        <td>${v.antiguo ? celdaFin(v.fechaCese || v.fechaFin, v.fechaFin) : "vigente"}</td>
         <td>${esc(v.motivoCese || (v.antiguo ? "-" : "en curso"))}</td>
-        <td>${esc(v.modalidad || "")}${v.modalidad === "TF" && v.nivelTF ? " " + esc(v.nivelTF) : ""}</td>
-        <td>${esc(v.coordId ? nomCoord(v.coordId) : "")}</td>
+        <td>${esc(v.modalidad || "")}${v.modalidad === "TF" && v.nivelTF ? " " + esc(v.nivelTF) : ""}${notaHist(v.rol)}</td>
+        <td>${esc(v.coordId ? nomCoord(v.coordId) : "")}${v.coordId ? notaHist(nomSub(v.coordId)) : ""}</td>
+        <td class="num">${v.salario ? fmtS(v.salario) : "-"}</td>
+        <td class="num">${fmtN(v.productos)}</td>
         <td><span class="pill">${v.antiguo ? "cerrado" : "actual"}</span></td></tr>`
     : "";
   if (!h.length && !actual) return "";
   return `<div class="campo" style="margin-top:14px"><label>Historial de contratos</label>
-    <div class="panel" style="margin:4px 0 0"><div class="tabla-wrap"><table>
-      <thead><tr><th>Inicio</th><th>Fin</th><th>Motivo</th><th>Modalidad</th>
-        <th>Coordinación</th><th></th></tr></thead>
+    <div class="panel" style="margin:4px 0 0"><div class="tabla-wrap"><table class="t-hist">
+      <thead><tr><th>N° contrato</th><th>Inicio</th><th>Fin</th><th>Motivo</th><th>Modalidad y rol</th>
+        <th>Coordinación</th><th class="num">Salario</th><th class="num">Prod.</th>
+        <th></th></tr></thead>
       <tbody>${h.map(x => `<tr>
+        <td>${esc(x.nroContrato || "-")}</td>
         <td>${fechaCorta(x.inicio) || "-"}</td>
-        <td>${fechaCorta(x.fin) || "-"}</td>
+        <td>${celdaFin(x.fin, x.finPrevisto)}</td>
         <td>${esc(x.motivo || "-")}</td>
-        <td>${esc(x.modalidad)}${x.nivelTF ? " " + esc(x.nivelTF) : ""}</td>
-        <td>${esc(x.coordinacion)}</td>
+        <td>${esc(x.modalidad)}${x.nivelTF ? " " + esc(x.nivelTF) : ""}${notaHist(x.rol)}</td>
+        <td>${esc(x.coordinacion)}${notaHist(x.subdireccion)}</td>
+        <td class="num">${x.salario ? fmtS(x.salario) : "-"}</td>
+        <td class="num">${x.salario || x.productos ? fmtN(x.productos) : "-"}</td>
         <td>${x.observacion ? `<span class="pill" title="${esc(x.observacion)}">nota</span>` : ""}</td></tr>`).join("")}
       ${actual}</tbody></table></div></div>
-    <div class="hint" style="margin:6px 0 0">Cada vez que la persona se reincorpora, el periodo
-      que terminó pasa a esta lista y las fechas de arriba quedan libres para el contrato nuevo.</div>
+    <div class="hint" style="margin:6px 0 0">Cada vez que la persona se reincorpora, su contrato
+      anterior pasa a esta lista y las fechas y el N° de arriba quedan libres para el contrato nuevo.</div>
   </div>`;
+}
+
+/** Segunda línea, más tenue, de una celda del historial: así la tabla cabe en la ficha. */
+const notaHist = t => t
+  ? `<div style="color:var(--ink3);font-size:11px">${esc(t)}</div>` : "";
+
+/** Fin real de un contrato y, si terminó en otra fecha, el fin que tenía previsto. */
+function celdaFin(fin, previsto) {
+  return (fechaCorta(fin) || "-") +
+    (previsto && previsto !== fin ? notaHist("previsto " + fechaCorta(previsto)) : "");
 }
 
 /** Si cambia la coordinación principal, se quita de la lista de reparto. */
@@ -3518,10 +3591,20 @@ function guardarPersona(id) {
     if (gemelo) { avisarHomonimo(gemelo, datos); return; }
   }
 
-  if (id) Object.assign(estado.personas.find(x => x.id === id), datos);
+  const previa = id ? estado.personas.find(x => x.id === id) : null;
+  const recontrato = !!(previa && previa.antiguo && !datos.antiguo);
+  if (recontrato) {
+    // Lo guardado es el contrato que termina; lo del formulario es el nuevo.
+    archivarPeriodo(previa);
+    delete previa.fechaAntiguo;
+  }
+  if (previa) Object.assign(previa, datos);
   else estado.personas.push(Object.assign({ id: uid() }, datos));
   guardar(); cerrar(); render();
-  toast(id ? "Cambios guardados" : "Persona agregada");
+  toast(recontrato
+    ? nomPersona(previa) + " vuelve a la composición actual: el contrato anterior pasó al historial" +
+      (datos.fechaInicio && datos.fechaFin ? "" : ". Faltan las fechas del contrato nuevo")
+    : id ? "Cambios guardados" : "Persona agregada");
 }
 
 /* ------------------- aviso de nombre ya registrado -------------------- */
@@ -3547,8 +3630,8 @@ function avisarHomonimo(gemelo, datos) {
   if (gemelo.antiguo) {
     abrirModal("Esa persona ya está registrada",
       `<div class="aviso"><b>${esc(nomPersona(gemelo))}</b> ya existe en ${donde}.
-         No hace falta volver a registrarla: basta con quitarle la condición de antiguo
-         para que vuelva a la composición actual con toda su ficha y sus etiquetas.</div>
+         No hace falta volver a registrarla: al reincorporarla vuelve a la composición actual
+         con su ficha y sus etiquetas, y su contrato anterior pasa al historial.</div>
        ${ficha}`,
       `<button class="btn btn-out" onclick="cerrar()">Cancelar</button>
        <button class="btn btn-out" onclick="crearDePendientes()">Es otra persona: registrar igual</button>
@@ -4013,13 +4096,16 @@ function hojasExcel() {
   estado.personas.forEach(p => (p.historial || []).forEach((h, i) => filasHist.push([
     p.nombre, p.apellido, i + 1, fechaCorta(h.inicio), fechaCorta(h.fin), h.motivo || "",
     h.modalidad || "", h.nivelTF || "", h.coordinacion || "", h.observacion || "",
-    p.antiguo ? "Personal antiguo" : "En la composición actual"
+    p.antiguo ? "Personal antiguo" : "En la composición actual",
+    h.nroContrato || "", fechaCorta(h.finPrevisto), h.rol || "", h.salario || "", h.productos || "",
+    h.subdireccion || ""
   ])));
   if (filasHist.length) {
     hojas.push({
       nombre: "Historial",
       columnas: ["Nombre", "Apellido", "Periodo", "Inicio", "Fin", "Motivo de cese",
-                 "Modalidad", "Nivel TF", "Coordinación", "Observación", "Situación actual"],
+                 "Modalidad", "Nivel TF", "Coordinación", "Observación", "Situación actual",
+                 "N° de contrato", "Fin previsto", "Rol", "Salario mensual", "Productos", "Subdirección"],
       filas: filasHist.sort((a, b) => (a[0] + a[1]).localeCompare(b[0] + b[1]) || a[2] - b[2])
     });
   }
@@ -4049,7 +4135,10 @@ function huellaHojas(hojas) {
         if (celdas.length) partes.push(celdas.join("\u0001"));
       });
     });
-  const s = partes.join("\u0002");
+  return hashTexto(partes.join("\u0002"));
+}
+
+function hashTexto(s) {
   let h1 = 0x811c9dc5, h2 = 5381;
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i);
@@ -4200,7 +4289,13 @@ function leerHojasPersonal(hojas) {
         modalidad: String(g(col("modalidad")) || "").trim().toUpperCase(),
         nivelTF: String(g(col("nivel tf")) || "").trim().toUpperCase(),
         coordinacion: String(g(col("coordinacion")) || "").trim(),
-        observacion: String(g(col("observacion")) || "").trim()
+        observacion: String(g(col("observacion")) || "").trim(),
+        nroContrato: String(g(col("n° de contrato")) || "").trim(),
+        finPrevisto: fechaISO(g(col("fin previsto"))),
+        rol: String(g(col("rol")) || "").trim(),
+        salario: Math.max(0, Number(g(col("salario mensual"))) || 0),
+        productos: Math.max(0, Number(g(col("productos"))) || 0),
+        subdireccion: String(g(col("subdireccion")) || "").trim()
       });
     });
   });
@@ -4375,12 +4470,19 @@ function leerFichasPendientes() {
   if (basePendiente) leerFichasExcel(basePendiente.b.ruta, basePendiente.hojas);
 }
 
+/* Anota de qué base salen los cambios que se hagan desde ahora: el Excel exportado
+   lo lleva, y al integrar propuestas sirve para avisar si partió de otra versión. */
+function marcarOrigen(datos, ruta) {
+  datos.origen = { version: versionDe(datos), archivo: String(ruta).split(/[\\/]/).pop(), fecha: hoyISO() };
+  return datos;
+}
+
 /* Pone en pantalla la base que trae un archivo. La versión web la reemplaza. */
 function restaurarBase(datos, ruta) {
   confirmar("Restaurar la base",
     "Los datos actuales serán <b>reemplazados</b> por la base de <b>" +
     esc(String(ruta).split(/[\\/]/).pop()) + "</b>.", () => {
-      estado = normalizar(datos);
+      estado = marcarOrigen(normalizar(datos), ruta);
       guardar(true); aplicarTema(); pintarTabs(); render();
       toast("Base restaurada: " + estado.personas.length + " ficha(s)");
     });
@@ -4617,6 +4719,825 @@ function aplicarImportacion(modo) {
     (saltadas ? ` · ${saltadas} sin cambios` : ""));
 }
 
+/* =====================================================================
+   INTEGRAR PROPUESTAS
+   ---------------------------------------------------------------------
+   Une en una sola base lo que varias personas cambiaron por separado. Se
+   compara cada propuesta contra la base oficial de la que salió, dato por
+   dato: lo que cambió una sola se toma; lo que cambiaron varias de distinta
+   forma se pregunta. calcularIntegracion no toca la pantalla ni "estado":
+   se vuelve a correr entera con cada decisión, porque decidir sobre una
+   coordinación cambia qué les pasa a sus personas.
+   ===================================================================== */
+
+const NADA = "\u0000";   // "este dato no está"
+const GRUPOS_INTEG = [   // lo que debe cambiar junto se compara junto
+  ["nombre", "Nombre", ["nombre", "apellido"]],
+  ["modalidad", "Modalidad", ["modalidad", "nivelTF"]],
+  ["productos", "Productos", ["productos"]],
+  ["salario", "Salario", ["salario"]],
+  ["carrera", "Carrera", ["carrera"]],
+  ["categoria", "Categoría", ["categoria"]],
+  ["sector", "Sector", ["sector"]],
+  ["coordId", "Coordinación", ["coordId"]],
+  ["rol", "Rol", ["rol"]],
+  ["contrato", "Contrato", ["fechaInicio", "fechaFin", "nroContrato", "historial"]],
+  ["estado", "Estado", ["activo", "motivoInactivo", "fechaRetorno"]],
+  ["antiguo", "Personal antiguo", ["antiguo", "motivoCese", "fechaCese", "fechaAntiguo"]],
+  ["dni", "DNI", ["dni"]],
+  ["celular", "Celular", ["celular"]],
+  ["usuarioInaf", "Usuario INAF", ["usuarioInaf"]],
+  ["teletrabajo", "Teletrabajo", ["teletrabajo"]],
+  ["anioIngreso", "Año de ingreso", ["anioIngreso"]],
+  ["observaciones", "Observaciones", ["observaciones"]]
+];
+const CAMPOS_EN_GRUPO = new Set(GRUPOS_INTEG.flatMap(g => g[2]));
+const CAMPOS_APARTE = new Set(["id", "orden", "etiquetas", "jefaturas", "repartos"]);
+
+const copiaJSON = x => JSON.parse(JSON.stringify(x));
+
+/** JSON con las claves ordenadas: dos datos iguales dan siempre el mismo texto. */
+function textoCanonico(v) {
+  if (Array.isArray(v)) return "[" + v.map(textoCanonico).join(",") + "]";
+  if (v && typeof v === "object") {
+    return "{" + Object.keys(v).filter(k => v[k] !== undefined).sort()
+      .map(k => JSON.stringify(k) + ":" + textoCanonico(v[k])).join(",") + "}";
+  }
+  return JSON.stringify(v === undefined ? null : v);
+}
+
+/** Identifica el contenido de una base. El tema y la marca de origen no cuentan. */
+function versionDe(datos) {
+  const { tema, origen, ...resto } = datos;
+  return hashTexto(textoCanonico(resto));
+}
+
+/** Una persona como pares campo -> texto: así se compara todo igual. */
+function planoPersona(p) {
+  const f = {};
+  GRUPOS_INTEG.forEach(([k, , campos]) => {
+    const o = {};
+    campos.forEach(c => { o[c] = p[c] === undefined ? null : p[c]; });
+    f[k] = textoCanonico(campos.length === 1 ? o[campos[0]] : o);
+  });
+  Object.keys(p).filter(k => !CAMPOS_EN_GRUPO.has(k) && !CAMPOS_APARTE.has(k))
+    .forEach(k => { f["x:" + k] = textoCanonico(p[k]); });
+  (p.etiquetas || []).forEach(e => { f["eti:" + e] = "1"; });
+  (p.jefaturas || []).forEach(j => { f["jef:" + j] = "1"; });
+  (p.repartos || []).forEach(r => { f["rep:" + r.coordId] = String(r.productos); });
+  return f;
+}
+
+function personaDePlano(id, f) {
+  const p = { id, etiquetas: [], jefaturas: [], repartos: [] };
+  GRUPOS_INTEG.forEach(([k, , campos]) => {
+    if (f[k] === undefined) return;
+    const v = JSON.parse(f[k]);
+    const poner = (c, x) => { if (x !== null || c === "coordId") p[c] = x; };
+    if (campos.length === 1) poner(campos[0], v);
+    else campos.forEach(c => poner(c, v[c]));
+  });
+  Object.keys(f).forEach(k => {
+    if (k.startsWith("x:")) p[k.slice(2)] = JSON.parse(f[k]);
+    else if (k.startsWith("eti:")) p.etiquetas.push(k.slice(4));
+    else if (k.startsWith("jef:")) p.jefaturas.push(k.slice(4));
+    else if (k.startsWith("rep:")) p.repartos.push({ coordId: k.slice(4), productos: Number(f[k]) });
+  });
+  return p;
+}
+
+function planoSimple(e) {
+  const f = {};
+  Object.keys(e).filter(k => k !== "id" && e[k] !== undefined && e[k] !== null)
+    .forEach(k => { f[k] = textoCanonico(e[k]); });
+  return f;
+}
+
+function deplanoSimple(id, f) {
+  const e = { id };
+  Object.keys(f).forEach(k => { e[k] = JSON.parse(f[k]); });
+  return e;
+}
+
+/** Lo que dos personas crearon por separado con el mismo nombre es una sola cosa.
+    También recupera las fichas de un archivo cuyos identificadores se regeneraron. */
+function alinearIds(B, Ps) {
+  const nuevos = { sub: [], coord: [], eti: [], per: [] };
+  Ps.forEach((P, i) => {
+    const alias = {};
+    const emparejar = (tipo, listaB, listaP, igual) => {
+      const usados = new Set(listaP.map(e => e.id));
+      listaP.forEach(e => {
+        if (listaB.some(x => x.id === e.id)) return;
+        const enBase = listaB.find(x => !usados.has(x.id) && igual(x, e));
+        const previo = nuevos[tipo].find(x => x.de !== i && igual(x.e, e));
+        // Escribir el nombre con otras mayúsculas o espacios no es un cambio.
+        const igualarNombre = o => { e.nombre = o.nombre; if (tipo === "per") e.apellido = o.apellido; };
+        if (enBase) { alias[e.id] = enBase.id; usados.add(enBase.id); igualarNombre(enBase); }
+        else if (previo) { alias[e.id] = previo.e.id; igualarNombre(previo.e); }
+        else nuevos[tipo].push({ de: i, e });
+      });
+    };
+    emparejar("sub", B.subdirecciones, P.subdirecciones, (a, b) => canon(a.nombre) === canon(b.nombre));
+    emparejar("coord", B.coordinaciones, P.coordinaciones, (a, b) =>
+      canon(a.nombre) === canon(b.nombre) && a.subId === (alias[b.subId] || b.subId));
+    emparejar("eti", B.etiquetas, P.etiquetas, (a, b) => canon(a.nombre) === canon(b.nombre));
+    emparejar("per", B.personas, P.personas, (a, b) =>
+      claveNombre(a.nombre, a.apellido) === claveNombre(b.nombre, b.apellido));
+    const m = id => alias[id] || id;
+    P.subdirecciones.forEach(s => { s.id = m(s.id); if (s.padreId) s.padreId = m(s.padreId); });
+    P.coordinaciones.forEach(c => { c.id = m(c.id); c.subId = m(c.subId); });
+    P.etiquetas.forEach(e => { e.id = m(e.id); });
+    P.org.unidades = P.org.unidades.map(m);
+    P.personas.forEach(p => {
+      p.id = m(p.id); p.coordId = m(p.coordId);
+      p.etiquetas = p.etiquetas.map(m);
+      p.jefaturas = p.jefaturas.map(m);
+      p.repartos.forEach(r => { r.coordId = m(r.coordId); });
+    });
+  });
+}
+
+/** Una coordinación que desaparece y cuya gente se fue toda a otra se unió a esa. */
+function unionesDe(B, P) {
+  const uniones = {};
+  const enP = new Set(P.coordinaciones.map(c => c.id));
+  const persona = {};
+  P.personas.forEach(p => { persona[p.id] = p; });
+  B.coordinaciones.filter(c => !enP.has(c.id)).forEach(c => {
+    const destinos = new Set();
+    B.personas.filter(p => p.coordId === c.id && persona[p.id])
+      .forEach(p => destinos.add(enP.has(persona[p.id].coordId) ? persona[p.id].coordId : null));
+    if (destinos.size === 1 && !destinos.has(null)) uniones[c.id] = [...destinos][0];
+  });
+  return uniones;
+}
+
+/** Orden final: el de la base, o el de quien lo cambió; lo nuevo va tras su vecino. */
+function ordenIntegrado(idsBase, listas, vivos, alReordenarDosVeces) {
+  let r = idsBase.filter(id => vivos.has(id));
+  let reordenada = false;
+  listas.forEach(l => {
+    const comun = l.filter(id => r.includes(id) && idsBase.includes(id));
+    const enBase = idsBase.filter(id => comun.includes(id));
+    if (comun.join() !== enBase.join()) {
+      if (reordenada) { alReordenarDosVeces(); }
+      else {
+        reordenada = true;
+        let n = 0;
+        r = r.map(id => comun.includes(id) ? comun[n++] : id);
+      }
+    }
+    l.forEach((id, i) => {
+      if (!vivos.has(id) || r.includes(id)) return;
+      let j = i - 1;
+      while (j >= 0 && !r.includes(l[j])) j--;
+      r.splice(j >= 0 ? r.indexOf(l[j]) + 1 : 0, 0, id);
+    });
+  });
+  return r;
+}
+
+function calcularIntegracion(baseOriginal, propuestasOriginales, decisiones) {
+  const B = normalizar(copiaJSON(baseOriginal));
+  const Ps = propuestasOriginales.map(x => normalizar(copiaJSON(x)));
+  alinearIds(B, Ps);
+
+  const conflictos = [], porGrupo = {}, cambios = [], avisos = [];
+  const anotar = (tipo, quien, texto) => cambios.push({ tipo, quien, texto });
+
+  /* Registra una pregunta y devuelve lo decidido, o null si sigue pendiente. */
+  const pedir = (grupo, datos, entidad) => {
+    let c = porGrupo[grupo];
+    if (!c) {
+      c = { grupo, titulo: datos.titulo, campo: datos.campo || "", opciones: datos.opciones, entidades: [],
+            elegido: datos.opciones.some(o => o.valor === decisiones[grupo]) ? decisiones[grupo] : null };
+      porGrupo[grupo] = c;
+      conflictos.push(c);
+    }
+    if (entidad) c.entidades.push(entidad);
+    return c.elegido;
+  };
+
+  /* Combina los campos de una entidad: fb es la base, fs lo de cada propuesta. */
+  const mezclar = ({ fb, fs, prefijo, baseExiste, titulo, etiqueta, mostrar, entidad }) => {
+    const claves = new Set(Object.keys(fb));
+    fs.forEach(f => { if (f) Object.keys(f).forEach(k => claves.add(k)); });
+    const res = {}, tocados = [];
+    claves.forEach(k => {
+      const tb = fb[k] === undefined ? NADA : fb[k];
+      const distintos = new Map();
+      fs.forEach((f, i) => {
+        if (!f) return;
+        const v = f[k] === undefined ? NADA : f[k];
+        if (v === tb) return;
+        if (!distintos.has(v)) distintos.set(v, []);
+        distintos.get(v).push(i);
+      });
+      let final = tb, quien = [];
+      if (distintos.size === 1) {
+        final = [...distintos.keys()][0];
+        quien = distintos.get(final);
+      } else if (distintos.size > 1) {
+        const valores = [...distintos.keys()].sort();
+        const opciones = valores.map(v => ({ valor: v, texto: mostrar(k, v), quien: distintos.get(v) }));
+        if (baseExiste) opciones.push({ valor: tb, texto: mostrar(k, tb), quien: [], base: true });
+        const elegido = pedir([prefijo, k, tb].concat(valores).join("\u0001"),
+          { titulo, campo: etiqueta(k), opciones }, entidad);
+        final = elegido !== null ? elegido : (baseExiste ? tb : valores[0]);
+        quien = (elegido !== null && distintos.get(elegido)) || [];
+      }
+      if (final !== NADA) res[k] = final;
+      if (final !== tb) tocados.push({ k, de: tb, a: final, quien });
+    });
+    return { res, tocados };
+  };
+
+  /* Si alguien quitó algo que otro todavía usa o cambió, se pregunta. */
+  const decidirExistencia = ({ grupo, titulo, borran, conserva, destinos, nomDestino, txtBorrar, txtConservar }) => {
+    const vals = new Map();
+    borran.forEach(i => {
+      const d = destinos && destinos[i];
+      const k = d ? "union:" + d : "borrar";
+      if (!vals.has(k)) vals.set(k, []);
+      vals.get(k).push(i);
+    });
+    const destinoDe = k => k.startsWith("union:") ? k.slice(6) : null;
+    if (!conserva.length && vals.size === 1) {
+      const k = [...vals.keys()][0];
+      return { vive: false, destino: destinoDe(k), quien: borran };
+    }
+    const opciones = [...vals.keys()].map(k => ({
+      valor: k, quien: vals.get(k),
+      texto: destinoDe(k) ? "Unirla a " + nomDestino(destinoDe(k)) : txtBorrar
+    }));
+    opciones.push({ valor: "conservar", texto: txtConservar, quien: conserva, base: !conserva.length });
+    const elegido = pedir(grupo, { titulo, opciones });
+    if (elegido === null || elegido === "conservar") return { vive: true, destino: null, quien: conserva };
+    return { vive: false, destino: destinoDe(elegido), quien: vals.get(elegido) };
+  };
+
+  /* ------------------------------------------ nombres para mostrar */
+  let subsFinal = [], coordsFinal = [], etisFinal = [];
+  const buscar = (final, lista, id) => final.find(x => x.id === id) || B[lista].find(x => x.id === id) ||
+    Ps.map(P => P[lista].find(x => x.id === id)).find(Boolean) || null;
+  const nomS = id => (buscar(subsFinal, "subdirecciones", id) || {}).nombre || "(sin subdirección)";
+  const nomC = id => {
+    const c = buscar(coordsFinal, "coordinaciones", id);
+    return c ? nomS(c.subId) + " / " + c.nombre : "(sin coordinación)";
+  };
+  const nomE = id => (buscar(etisFinal, "etiquetas", id) || {}).nombre || "(etiqueta)";
+  const leer = (t, sinDato) => {
+    if (t === NADA || t === undefined) return sinDato;
+    const v = JSON.parse(t);
+    return v === "" || v === null ? "(vacío)" : String(v);
+  };
+  const mostrarSimple = (k, t) => {
+    if (t === NADA || t === undefined) return "(sin dato)";
+    if (k === "subId") return nomS(JSON.parse(t));
+    if (k === "padreId") return nomS(JSON.parse(t));
+    return leer(t, "(sin dato)");
+  };
+  const etiquetaSimple = k => ({ nombre: "Nombre", subId: "Subdirección", padreId: "Depende de", color: "Color" }[k] || k);
+  const mostrarPersona = (k, t) => {
+    if (k.startsWith("eti:") || k.startsWith("jef:")) return t === NADA ? "No" : "Sí";
+    if (k.startsWith("rep:")) return t === NADA ? "Sin reparto" : t + " producto(s)";
+    if (t === NADA || t === undefined) return "(sin dato)";
+    const v = JSON.parse(t);
+    switch (k) {
+      case "coordId": return v ? nomC(v) : "(sin coordinación)";
+      case "nombre": return (v.nombre + " " + v.apellido).trim();
+      case "modalidad": return v.modalidad === "TF" && v.nivelTF ? "TF " + v.nivelTF : String(v.modalidad);
+      case "salario": return fmtS(v);
+      case "contrato": return (v.nroContrato ? "N° " + v.nroContrato + ": " : "") +
+        (fechaCorta(v.fechaInicio) || "sin inicio") + " a " + (fechaCorta(v.fechaFin) || "sin fin") +
+        ((v.historial || []).length ? " · " + v.historial.length + " periodo(s) anterior(es)" : "");
+      case "estado": return v.activo ? "Activo" : "Desactivado" + (v.motivoInactivo ? " (" + v.motivoInactivo + ")" : "");
+      case "antiguo": return v.antiguo ? "Personal antiguo" + (v.motivoCese ? " (" + v.motivoCese + ")" : "") : "Vigente";
+      default: return v === "" || v === null ? "(vacío)" : String(v);
+    }
+  };
+  const etiquetaPersona = k => {
+    if (k.startsWith("eti:")) return "Etiqueta " + nomE(k.slice(4));
+    if (k.startsWith("jef:")) return "A cargo de " + nomC(k.slice(4));
+    if (k.startsWith("rep:")) return "Productos en " + nomC(k.slice(4));
+    if (k.startsWith("x:")) return k.slice(2);
+    return (GRUPOS_INTEG.find(g => g[0] === k) || [k, k])[1];
+  };
+
+  /* ------------------------------------------ subdirecciones y etiquetas */
+  const mezclarCatalogo = (lista, tipo, Tipo, usaEnP) => {
+    const vivos = new Set(), salida = {};
+    const ids = B[lista].map(e => e.id);
+    Ps.forEach(P => P[lista].forEach(e => { if (!ids.includes(e.id)) ids.push(e.id); }));
+    ids.forEach(id => {
+      const b = B[lista].find(e => e.id === id);
+      const tiene = Ps.map(P => P[lista].find(e => e.id === id) || null);
+      const nombre = (b || tiene.find(Boolean)).nombre;
+      const fb = b ? planoSimple(b) : {};
+      const distinto = f => textoCanonico(f) !== textoCanonico(fb);
+      if (b) {
+        const borran = tiene.map((t, i) => t ? -1 : i).filter(i => i >= 0);
+        if (borran.length) {
+          const conserva = tiene.map((t, i) => t && (distinto(planoSimple(t)) || usaEnP(Ps[i], id)) ? i : -1)
+            .filter(i => i >= 0);
+          const d = decidirExistencia({
+            grupo: tipo + "-existe\u0001" + id, titulo: `${Tipo} "${nombre}": una propuesta la quita y otra la usa`,
+            borran, conserva, txtBorrar: "Quitarla", txtConservar: "Conservarla"
+          });
+          if (!d.vive) { anotar(Tipo, d.quien, `Se elimina: ${nombre}`); return; }
+        }
+      }
+      const { res, tocados } = mezclar({
+        fb, fs: tiene.map(t => t ? planoSimple(t) : null), prefijo: tipo + "\u0001" + id, baseExiste: !!b,
+        titulo: `${Tipo} "${nombre}"`, etiqueta: etiquetaSimple, mostrar: mostrarSimple
+      });
+      vivos.add(id);
+      salida[id] = deplanoSimple(id, res);
+      if (!b) anotar(Tipo, tiene.map((t, i) => t ? i : -1).filter(i => i >= 0), `Nueva: ${nombre}`);
+      else tocados.forEach(t => anotar(Tipo, t.quien,
+        `${nombre}: ${etiquetaSimple(t.k).toLowerCase()}: ${mostrarSimple(t.k, t.de)} → ${mostrarSimple(t.k, t.a)}`));
+    });
+    const orden = ordenIntegrado(B[lista].map(e => e.id), Ps.map(P => P[lista].map(e => e.id)), vivos,
+      () => avisos.push(`Más de una propuesta reordenó ${lista}: se conservó el orden de la primera.`));
+    return { vivos, final: orden.map(id => salida[id]) };
+  };
+
+  const personaBase = {};
+  B.personas.forEach(p => { personaBase[p.id] = p; });
+
+  const subs = mezclarCatalogo("subdirecciones", "sub", "Subdirección", (P, id) =>
+    P.coordinaciones.some(c => c.subId === id &&
+      (B.coordinaciones.find(x => x.id === c.id) || {}).subId !== id));
+  subsFinal = subs.final;
+  const etis = mezclarCatalogo("etiquetas", "eti", "Etiqueta", (P, id) =>
+    P.personas.some(p => p.etiquetas.includes(id) &&
+      !(personaBase[p.id] || { etiquetas: [] }).etiquetas.includes(id)));
+  etisFinal = etis.final;
+
+  /* ------------------------------------------ coordinaciones */
+  const uniones = Ps.map(P => unionesDe(B, P));
+  const recibeEnP = (P, id) => P.personas.some(p => {
+    const b = personaBase[p.id];
+    return (p.coordId === id && (!b || b.coordId !== id)) ||
+      (p.jefaturas.includes(id) && !(b && b.jefaturas.includes(id))) ||
+      (p.repartos.some(r => r.coordId === id) && !(b && b.repartos.some(r => r.coordId === id)));
+  });
+  const vivosC = new Set(), destino = {};
+  const idsC = B.coordinaciones.map(c => c.id);
+  Ps.forEach(P => P.coordinaciones.forEach(c => { if (!idsC.includes(c.id)) idsC.push(c.id); }));
+  // Primero se decide qué coordinaciones quedan: los nombres de las uniones dependen de eso.
+  coordsFinal = B.coordinaciones.slice();
+  idsC.forEach(id => {
+    const b = B.coordinaciones.find(c => c.id === id);
+    if (!b) { vivosC.add(id); return; }
+    const tiene = Ps.map(P => P.coordinaciones.find(c => c.id === id) || null);
+    const borran = tiene.map((t, i) => t ? -1 : i).filter(i => i >= 0);
+    if (!borran.length) { vivosC.add(id); return; }
+    const hayBorradoPuro = borran.some(i => !uniones[i][id]);
+    const fb = planoSimple(b);
+    const conserva = tiene.map((t, i) => {
+      if (!t) return -1;
+      if (textoCanonico(planoSimple(t)) !== textoCanonico(fb)) return i;
+      return hayBorradoPuro && recibeEnP(Ps[i], id) ? i : -1;
+    }).filter(i => i >= 0);
+    const destinos = {};
+    borran.forEach(i => { destinos[i] = uniones[i][id]; });
+    const d = decidirExistencia({
+      grupo: "coord-existe\u0001" + id,
+      titulo: `Coordinación "${nomS(b.subId)} / ${b.nombre}"`,
+      borran, conserva, destinos, nomDestino: nomC,
+      txtBorrar: "Eliminarla", txtConservar: "Conservarla"
+    });
+    if (d.vive) { vivosC.add(id); return; }
+    if (d.destino) destino[id] = d.destino;
+    anotar("Coordinación", d.quien, d.destino
+      ? `${nomC(id)} se une a ${nomC(d.destino)}` : `Se elimina: ${nomC(id)}`);
+  });
+  // Dos uniones cruzadas (A en B y B en A): una de las dos tiene que quedar.
+  Object.keys(destino).forEach(id => {
+    const visto = new Set([id]);
+    let n = destino[id];
+    while (n && destino[n] && !visto.has(n)) { visto.add(n); n = destino[n]; }
+    if (n && visto.has(n)) {
+      delete destino[n];
+      vivosC.add(n);
+      avisos.push(`Las propuestas se unen entre sí alrededor de ${nomC(n)}: esa coordinación se conservó. Revísala.`);
+    }
+  });
+  const resolver = id => {
+    const visto = new Set();
+    while (id && destino[id] && !visto.has(id)) { visto.add(id); id = destino[id]; }
+    return id;
+  };
+
+  const salidaC = {};
+  idsC.filter(id => vivosC.has(id)).forEach(id => {
+    const b = B.coordinaciones.find(c => c.id === id);
+    const tiene = Ps.map(P => P.coordinaciones.find(c => c.id === id) || null);
+    const nombre = (b || tiene.find(Boolean)).nombre;
+    const { res, tocados } = mezclar({
+      fb: b ? planoSimple(b) : {}, fs: tiene.map(t => t ? planoSimple(t) : null),
+      prefijo: "coord\u0001" + id, baseExiste: !!b,
+      titulo: `Coordinación "${nombre}"`, etiqueta: etiquetaSimple, mostrar: mostrarSimple
+    });
+    salidaC[id] = deplanoSimple(id, res);
+    if (salidaC[id].subId && !subs.vivos.has(salidaC[id].subId)) {
+      avisos.push(`La coordinación "${nombre}" quedó sin subdirección: la suya se eliminó.`);
+      delete salidaC[id].subId;
+    }
+    if (!b) anotar("Coordinación", tiene.map((t, i) => t ? i : -1).filter(i => i >= 0),
+      `Nueva: ${nomS(salidaC[id].subId)} / ${salidaC[id].nombre}`);
+    else tocados.forEach(t => anotar("Coordinación", t.quien,
+      `${nombre}: ${etiquetaSimple(t.k).toLowerCase()}: ${mostrarSimple(t.k, t.de)} → ${mostrarSimple(t.k, t.a)}`));
+  });
+  const ordenC = ordenIntegrado(B.coordinaciones.map(c => c.id), Ps.map(P => P.coordinaciones.map(c => c.id)), vivosC,
+    () => avisos.push("Más de una propuesta reordenó las coordinaciones: se conservó el orden de la primera."));
+  coordsFinal = ordenC.map(id => salidaC[id]);
+
+  /* ------------------------------------------ personas */
+  /* Lo decidido sobre las coordinaciones se aplica antes de comparar a la gente:
+     quien siguió a una unión rechazada vuelve, y quien la siguió a otro destino
+     va al elegido. Así un equipo entero no se convierte en una pregunta por cabeza. */
+  const llevados = new Set();   // quien fue a un destino que su propuesta no eligió
+  Ps.forEach((P, i) => {
+    const propias = uniones[i];
+    const reubicar = X => vivosC.has(X) ? X : resolver(X);
+    const venirDeUnion = (c, tieneEnBase, tieneAhora) =>
+      Object.keys(propias).find(X => propias[X] === c && tieneEnBase(X) && !tieneAhora(X));
+    P.personas.forEach(p => {
+      const b = personaBase[p.id];
+      if (b && b.coordId && propias[b.coordId] && p.coordId === propias[b.coordId]) {
+        const final = reubicar(b.coordId);
+        if (final !== p.coordId) llevados.add(i + "" + p.id);
+        p.coordId = final;
+      }
+      else if (!b || p.coordId !== b.coordId) p.coordId = resolver(p.coordId);
+
+      const repB = {}, sumas = {};
+      (b ? b.repartos : []).forEach(r => { repB[r.coordId] = r.productos; });
+      const repP = new Set(p.repartos.map(r => r.coordId));
+      p.repartos.forEach(r => {
+        const X = b && repB[r.coordId] === undefined &&
+          venirDeUnion(r.coordId, x => repB[x] !== undefined, x => repP.has(x));
+        const id = X ? reubicar(X) : (repB[r.coordId] === r.productos ? r.coordId : resolver(r.coordId));
+        sumas[id] = (sumas[id] || 0) + r.productos;
+      });
+      p.repartos = Object.keys(sumas).map(coordId => ({ coordId, productos: sumas[coordId] }));
+
+      const jefB = b ? b.jefaturas : [];
+      p.jefaturas = p.jefaturas.map(j => {
+        if (jefB.includes(j)) return j;
+        const X = b && venirDeUnion(j, x => jefB.includes(x), x => p.jefaturas.includes(x));
+        return X ? reubicar(X) : resolver(j);
+      }).filter((j, n, l) => l.indexOf(j) === n);
+    });
+  });
+
+  const mapasP = Ps.map(P => { const m = {}; P.personas.forEach(p => { m[p.id] = p; }); return m; });
+  const idsP = B.personas.map(p => p.id);
+  const vistos = new Set(idsP);
+  Ps.forEach(P => P.personas.forEach(p => { if (!vistos.has(p.id)) { vistos.add(p.id); idsP.push(p.id); } }));
+
+  const personasFinal = [];
+  idsP.forEach(id => {
+    const b = personaBase[id];
+    const tiene = mapasP.map(m => m[id] || null);
+    const quienTiene = tiene.map((t, i) => t ? i : -1).filter(i => i >= 0);
+    const fb = b ? planoPersona(b) : {};
+    const fs = tiene.map(t => t ? planoPersona(t) : null);
+    const nombre = nomPersona(b || tiene.find(Boolean));
+    if (b && quienTiene.length < Ps.length) {
+      const borran = tiene.map((t, i) => t ? -1 : i).filter(i => i >= 0);
+      const conserva = fs.map((f, i) => f && textoCanonico(f) !== textoCanonico(fb) ? i : -1).filter(i => i >= 0);
+      const d = decidirExistencia({
+        grupo: "per-existe\u0001" + id, titulo: `${nombre}: una propuesta borra la ficha y otra la cambia`,
+        borran, conserva, txtBorrar: "Borrar la ficha", txtConservar: "Conservar la ficha"
+      });
+      if (!d.vive) { anotar("Baja", d.quien, `${nombre}: se borra la ficha`); return; }
+    }
+    const { res, tocados } = mezclar({
+      fb, fs, prefijo: "per", baseExiste: !!b, titulo: "", etiqueta: etiquetaPersona,
+      mostrar: mostrarPersona, entidad: nombre
+    });
+
+    // Si su coordinación ya no existe, va a donde se unió o vuelve a la de la base.
+    const leida = res.coordId !== undefined ? JSON.parse(res.coordId) : null;
+    let cid = leida;
+    if (cid && !vivosC.has(cid)) {
+      const r = resolver(cid);
+      if (vivosC.has(r)) cid = r;
+      else {
+        cid = b && vivosC.has(resolver(b.coordId)) ? resolver(b.coordId) : null;
+        avisos.push(`${nombre}: la coordinación que le asignaron se eliminó; quedó en ${cid ? nomC(cid) : "ninguna"}.`);
+      }
+    }
+    if (cid !== leida) {
+      res.coordId = textoCanonico(cid);
+      const t = tocados.find(x => x.k === "coordId");
+      const de = fb.coordId === undefined ? NADA : fb.coordId;
+      if (t) t.a = res.coordId;
+      else if (res.coordId !== de) tocados.push({ k: "coordId", de, a: res.coordId, quien: [] });
+    }
+
+    const p = personaDePlano(id, res);
+    const ordenes = tiene.filter(t => t && t.orden !== undefined && t.orden !== (b ? b.orden : undefined));
+    const orden = ordenes.length ? ordenes[0].orden : (b ? b.orden : undefined);
+    if (orden !== undefined) p.orden = orden;
+
+    const sumas = {};
+    p.repartos.forEach(r => {
+      const c = resolver(r.coordId);
+      if (vivosC.has(c) && c !== p.coordId) sumas[c] = (sumas[c] || 0) + r.productos;
+    });
+    p.repartos = Object.keys(sumas).map(coordId => ({ coordId, productos: sumas[coordId] }));
+    p.jefaturas = p.jefaturas.map(resolver)
+      .filter((j, n, l) => vivosC.has(j) && j !== p.coordId && l.indexOf(j) === n);
+    p.etiquetas = p.etiquetas.filter(e => etis.vivos.has(e));
+    personasFinal.push(p);
+
+    if (!b) {
+      anotar("Alta", quienTiene, `${nomPersona(p)}: ficha nueva en ${p.coordId ? nomC(p.coordId) : "ninguna coordinación"}`);
+      return;
+    }
+    tocados.filter(t => !t.k.startsWith("eti:") || etis.vivos.has(t.k.slice(4))).forEach(t => {
+      if (t.k === "coordId") anotar("Traslado", t.quien.filter(i => !llevados.has(i + "" + id)),
+        `${nomPersona(p)}: ${mostrarPersona(t.k, t.de)} → ${mostrarPersona(t.k, t.a)}`);
+      else anotar("Dato", t.quien,
+        `${nomPersona(p)}: ${etiquetaPersona(t.k)}: ${mostrarPersona(t.k, t.de)} → ${mostrarPersona(t.k, t.a)}`);
+    });
+  });
+
+  /* ------------------------------------------ el resto de la base */
+  const sectores = B.sectores.filter(s => Ps.every(P => P.sectores.includes(s)));
+  B.sectores.filter(s => !sectores.includes(s)).forEach(s =>
+    anotar("Sector", Ps.map((P, i) => P.sectores.includes(s) ? -1 : i).filter(i => i >= 0), `Se quita: ${s}`));
+  Ps.forEach((P, i) => P.sectores.forEach(s => {
+    if (B.sectores.includes(s)) return;
+    if (!sectores.includes(s)) {
+      sectores.push(s);
+      anotar("Sector", Ps.map((Q, j) => Q.sectores.includes(s) ? j : -1).filter(j => j >= 0), `Nuevo: ${s}`);
+    }
+  }));
+  personasFinal.forEach(p => { if (p.sector && !sectores.includes(p.sector)) sectores.push(p.sector); });
+
+  const org = mezclar({
+    fb: { organizacion: textoCanonico(B.organizacion) },
+    fs: Ps.map(P => ({ organizacion: textoCanonico(P.organizacion) })),
+    prefijo: "organizacion", baseExiste: true, titulo: "Nombre de la organización",
+    etiqueta: () => "", mostrar: (k, t) => leer(t, "(sin dato)")
+  });
+
+  // Cómo se ve el organigrama no afecta a los datos: no merece una pregunta.
+  const vistaOrg = copiaJSON(B.org);
+  Object.keys(vistaOrg).forEach(k => {
+    const tb = textoCanonico(B.org[k]);
+    const dist = [...new Set(Ps.map(P => textoCanonico(P.org[k])).filter(t => t !== tb))];
+    if (dist.length) vistaOrg[k] = JSON.parse(dist[0]);
+    if (dist.length > 1) avisos.push("Más de una propuesta cambió la vista del organigrama: se usó la de la primera.");
+  });
+
+  const resultado = normalizar({
+    version: B.version || 1,
+    organizacion: JSON.parse(org.res.organizacion),
+    sectores,
+    subdirecciones: subs.final,
+    coordinaciones: coordsFinal,
+    etiquetas: etis.final,
+    personas: personasFinal,
+    org: vistaOrg
+  });
+
+  /* ------------------------------------------ lo que conviene mirar antes de aceptar */
+  const jefes = d => {
+    const n = {};
+    d.personas.filter(p => !p.antiguo && p.activo && p.rol === "Jefe de equipo" && p.coordId)
+      .forEach(p => { n[p.coordId] = (n[p.coordId] || 0) + 1; });
+    return n;
+  };
+  const jefesB = jefes(B), jefesR = jefes(resultado);
+  Object.keys(jefesR).forEach(id => {
+    if (jefesR[id] >= 2 && jefesR[id] > (jefesB[id] || 0))
+      avisos.push(`${nomC(id)} queda con ${jefesR[id]} jefes de equipo.`);
+  });
+  resultado.personas.filter(p => !p.antiguo && !p.coordId && personaBase[p.id] && personaBase[p.id].coordId)
+    .forEach(p => avisos.push(`${nomPersona(p)} queda sin coordinación.`));
+  const nombresC = {};
+  resultado.coordinaciones.forEach(c => {
+    const k = canon(c.nombre) + "\u0001" + c.subId;
+    if (nombresC[k]) avisos.push(`Quedan dos coordinaciones llamadas "${c.nombre}" en ${nomS(c.subId)}.`);
+    nombresC[k] = true;
+  });
+
+  const medir = d => {
+    const g = estado;
+    estado = d;
+    try {
+      const t = calcular().global;
+      return { personas: t.personas, productos: t.prodPorCat.Legal || 0, ppto: t.ppto };
+    } finally { estado = g; }
+  };
+
+  return {
+    resultado, conflictos, cambios, avisos: [...new Set(avisos)],
+    pendientes: conflictos.filter(c => c.elegido === null).length,
+    antes: medir(B), despues: medir(resultado)
+  };
+}
+
+/* ---------------------------- pantallas de la integración ---------------------------- */
+
+let integ = null;   // { base, propuestas, decisiones, calc }
+
+function integrarPropuestas() {
+  if (!hayApi) { toast("Disponible en la aplicación de escritorio", true); return; }
+  if (!integ) integ = { base: null, propuestas: [], decisiones: {}, calc: null };
+  dlgIntegrarArchivos();
+}
+
+const letraInteg = i => String.fromCharCode(65 + i);
+
+function avisosDeArchivo(item, esBase) {
+  const a = [];
+  if (!item.intacta) a.push("Sus hojas se editaron a mano: lo editado no entra, solo la base guardada al exportar.");
+  if (esBase || !integ.base) return a;
+  const vBase = versionDe(integ.base.datos);
+  if (versionDe(item.datos) === vBase) a.push("Es igual a la base oficial: no trae cambios.");
+  else if (!item.datos.origen) a.push("No indica de qué base partió: confirma que salió de esta base oficial.");
+  else if (item.datos.origen.version !== vBase) a.push(
+    `Partió de otra versión (${item.datos.origen.archivo || "sin nombre"}). Lo que cambió en la oficial después ` +
+    "se verá como si esta propuesta lo deshiciera: revisa bien la lista de cambios.");
+  return a;
+}
+
+function dlgIntegrarArchivos() {
+  const fila = (item, rotulo, quitar, esBase) => {
+    const avisos = avisosDeArchivo(item, esBase);
+    return `<div class="int-arch">
+      <div class="int-arch-cab"><b>${rotulo}</b> <span>${esc(item.archivo)}</span>
+        <span class="pill">${fmtN(item.datos.personas.length)} fichas</span>
+        ${item.exportado ? `<span class="pill">exportada ${esc(fechaCorta(item.exportado))}</span>` : ""}
+        ${quitar}</div>
+      ${avisos.map(x => `<div class="int-aviso">${esc(x)}</div>`).join("")}
+    </div>`;
+  };
+  const listo = integ.base && integ.propuestas.length;
+  abrirModal("Integrar propuestas",
+    `<div class="hint" style="font-size:13px;line-height:1.55">Une en una sola base los cambios que varias
+       personas hicieron por separado. Cada propuesta se compara con la base oficial de la que salió: lo que
+       cambió una sola se toma, y lo que cambiaron varias de distinta forma te lo pregunto.
+       Hasta que aceptes no se cambia nada.</div>
+     <div class="campo"><label>1. Base oficial de la que partieron</label>
+       ${integ.base ? fila(integ.base, "Base", `<button class="btn btn-out btn-sm" style="margin-left:auto" onclick="integrarElegir('base')">Cambiar</button>`, true)
+         : `<div><button class="btn btn-out" onclick="integrarElegir('base')">Elegir Excel de la base oficial</button></div>`}
+     </div>
+     <div class="campo" style="margin-top:16px"><label>2. Propuestas</label>
+       ${integ.propuestas.map((p, i) => fila(p, "Propuesta " + letraInteg(i),
+         `<button class="btn btn-out btn-sm" style="margin-left:auto" onclick="integrarQuitar(${i})">Quitar</button>`, false)).join("")}
+       <div><button class="btn btn-out" onclick="integrarElegir('propuesta')">Agregar propuesta</button></div>
+     </div>`,
+    `<button class="btn btn-out" onclick="cerrar()">Cancelar</button>
+     <button class="btn btn-accion"${listo ? "" : " disabled"} style="${listo ? "" : "opacity:.45;pointer-events:none"}"
+       onclick="compararIntegracion()">Comparar</button>`);
+}
+
+async function integrarElegir(cual) {
+  const r = await window.pywebview.api.importar_excel();
+  if (!r.ok) { if (!r.cancelado) toast("No se pudo leer: " + r.error, true); return; }
+  const b = baseDeHojas(r.hojas || {}, r.ruta);
+  const archivo = String(r.ruta).split(/[\\/]/).pop();
+  if (!b) {
+    toast(`${archivo} no trae la base completa: debe ser un Excel exportado desde esta herramienta`, true);
+    return;
+  }
+  const item = { archivo, datos: normalizar(b.datos), exportado: b.exportado, intacta: b.intacta };
+  if (cual === "base") integ.base = item;
+  else {
+    const v = versionDe(item.datos);
+    if (integ.propuestas.some(p => versionDe(p.datos) === v)) { toast("Esa propuesta ya está en la lista", true); return; }
+    integ.propuestas.push(item);
+  }
+  integ.decisiones = {};
+  dlgIntegrarArchivos();
+}
+
+function integrarQuitar(i) {
+  integ.propuestas.splice(i, 1);
+  integ.decisiones = {};
+  dlgIntegrarArchivos();
+}
+
+function compararIntegracion() {
+  pintarIntegracion();
+}
+
+function recalcularIntegracion() {
+  integ.calc = calcularIntegracion(integ.base.datos, integ.propuestas.map(p => p.datos), integ.decisiones);
+  return integ.calc;
+}
+
+function pintarIntegracion() {
+  const cuerpoPrevio = $("#modal .m-body");
+  const alto = cuerpoPrevio ? cuerpoPrevio.scrollTop : 0;
+  const c = recalcularIntegracion();
+  const letras = q => q.map(i => `<span class="pill">${letraInteg(i)}</span>`).join(" ");
+
+  const fila = (rot, a, d, fmt) => `<tr><td>${rot}</td><td class="num">${fmt(a)}</td>
+    <td class="num"><b>${fmt(d)}</b></td></tr>`;
+  const conteos = {};
+  c.cambios.forEach(x => { conteos[x.tipo] = (conteos[x.tipo] || 0) + 1; });
+  const tipos = ["Traslado", "Alta", "Baja", "Dato", "Coordinación", "Subdirección", "Etiqueta", "Sector"];
+
+  const conflictos = c.conflictos.map((x, n) => {
+    const titulo = x.entidades.length
+      ? (x.entidades.length === 1 ? esc(x.entidades[0]) : x.entidades.length + " personas") +
+        (x.campo ? ": " + esc(x.campo) : "")
+      : esc(x.titulo) + (x.campo ? ": " + esc(x.campo) : "");
+    const nombres = x.entidades.length > 1
+      ? `<div class="int-nombres">${x.entidades.map(esc).join(", ")}</div>` : "";
+    return `<div class="int-conf${x.elegido === null ? " pend" : ""}">
+      <div class="int-conf-tit">${titulo}</div>${nombres}
+      ${x.opciones.map((o, m) => `<label class="int-op">
+        <input type="radio" name="int-${n}"${x.elegido === o.valor ? " checked" : ""} onchange="elegirInteg(${n},${m})">
+        <span>${esc(o.texto)}</span>
+        ${o.quien.length ? letras(o.quien) : ""}${o.base ? '<span class="pill">base oficial</span>' : ""}
+      </label>`).join("")}
+    </div>`;
+  }).join("");
+
+  const porTipo = tipos.filter(t => conteos[t]).map(t => `<details class="int-det">
+      <summary>${t} <b>${fmtN(conteos[t])}</b></summary>
+      <div class="int-lista">${c.cambios.filter(x => x.tipo === t).map(x =>
+        `<div>${x.quien.length ? letras(x.quien) + " " : ""}${esc(x.texto)}</div>`).join("")}</div>
+    </details>`).join("");
+
+  const avisosArch = [];
+  if (integ.base) avisosDeArchivo(integ.base, true).forEach(a => avisosArch.push("Base oficial: " + a));
+  integ.propuestas.forEach((p, i) => avisosDeArchivo(p, false).forEach(a =>
+    avisosArch.push(`Propuesta ${letraInteg(i)}: ${a}`)));
+  const avisos = avisosArch.concat(c.avisos);
+
+  abrirModal("Integrar propuestas: revisión",
+    `<div class="int-letras">${integ.propuestas.map((p, i) =>
+        `<span><span class="pill">${letraInteg(i)}</span> ${esc(p.archivo)}</span>`).join("")}</div>
+     <div class="panel" style="margin-bottom:14px"><div class="tabla-wrap"><table>
+       <thead><tr><th>Resultado</th><th class="num">Base oficial</th><th class="num">Integrado</th></tr></thead>
+       <tbody>
+         ${fila("Personal activo", c.antes.personas, c.despues.personas, fmtN)}
+         ${fila("Productos (legales)", c.antes.productos, c.despues.productos, fmtN)}
+         ${fila("Presupuesto mensual", c.antes.ppto, c.despues.ppto, fmtS)}
+       </tbody></table></div></div>
+     ${avisos.length ? `<div class="aviso"><b>Revisa:</b><ul style="margin:6px 0 0;padding-left:18px">${
+        avisos.map(a => `<li>${esc(a)}</li>`).join("")}</ul></div>` : ""}
+     ${c.conflictos.length ? `<div class="int-sec">Decisiones (${c.conflictos.length - c.pendientes} de ${c.conflictos.length})</div>${conflictos}`
+       : `<div class="hint">Las propuestas no chocan entre sí: no hay nada que decidir.</div>`}
+     <div class="int-sec" style="margin-top:16px">Cambios que entrarán (${fmtN(c.cambios.length)})</div>
+     ${porTipo || '<div class="hint">Ningún cambio.</div>'}`,
+    `<button class="btn btn-out" onclick="dlgIntegrarArchivos()">Volver</button>
+     <button class="btn btn-out" onclick="exportarCambiosInteg()">Exportar lista de cambios</button>
+     <button class="btn btn-accion"${c.pendientes ? " disabled" : ""}
+       style="${c.pendientes ? "opacity:.45;pointer-events:none" : ""}" onclick="aplicarIntegracion()">${
+       c.pendientes ? `Faltan ${c.pendientes} decisión(es)` : "Aplicar integración"}</button>`);
+  const cuerpo = $("#modal .m-body");
+  if (cuerpo && alto) cuerpo.scrollTop = alto;
+}
+
+function elegirInteg(n, m) {
+  const c = integ.calc.conflictos[n];
+  integ.decisiones[c.grupo] = c.opciones[m].valor;
+  pintarIntegracion();
+}
+
+async function exportarCambiosInteg() {
+  const c = recalcularIntegracion();
+  const propuesta = q => q.map(i => letraInteg(i) + ": " + integ.propuestas[i].archivo).join("; ");
+  const hojas = [{
+    nombre: "Cambios integrados",
+    columnas: ["Tipo", "Propuesta", "Detalle"],
+    filas: c.cambios.map(x => [x.tipo, propuesta(x.quien), x.texto])
+  }];
+  const r = await window.pywebview.api.exportar_excel({ hojas }, "cambios_integrados_" + hoyISO() + ".xlsx");
+  if (r.ok) toast("Lista guardada en " + r.ruta);
+  else if (!r.cancelado) toast("No se pudo exportar: " + r.error, true);
+}
+
+function aplicarIntegracion() {
+  const c = recalcularIntegracion();
+  if (c.pendientes) return;
+  confirmar("Aplicar la integración",
+    `Lo que tienes en pantalla se <b>reemplaza</b> por la base integrada (${fmtN(c.resultado.personas.length)} fichas).
+     Luego expórtala y publícala como nueva base oficial.`, () => {
+      const tema = estado.tema;
+      const base = integ.base;
+      estado = c.resultado;
+      if (tema) estado.tema = tema;
+      estado.origen = { version: versionDe(base.datos), archivo: base.archivo, fecha: hoyISO() };
+      integ = null;
+      guardar(true); aplicarTema(); pintarTabs(); render();
+      toast("Integración aplicada: falta exportar la base");
+    });
+}
+
 async function respaldar() {
   if (!hayApi) {
     const a = document.createElement("a");
@@ -4694,7 +5615,7 @@ async function restaurar() {
 
   restaurarBase = function (datos, ruta) {
     const cargar = () => {
-      estado = normalizar(datos);
+      estado = marcarOrigen(normalizar(datos), ruta);
       fijarLimpia(String(ruta).split(/[\\/]/).pop());
       aplicarTema(); pintarTabs(); render();
       toast("Base importada: " + estado.personas.length + " ficha(s)");
